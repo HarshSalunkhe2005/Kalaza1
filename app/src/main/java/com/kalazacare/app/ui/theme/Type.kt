@@ -5,29 +5,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
-import com.kalazacare.app.R
 
-private val provider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
+val LibreBaskerville = FontFamily.Serif
 
-val LibreBaskerville = FontFamily(
-    Font(GoogleFont("Libre Baskerville"), provider, FontWeight.Normal),
-    Font(GoogleFont("Libre Baskerville"), provider, FontWeight.Bold),
-)
-
-val RobotoFamily = FontFamily(
-    Font(GoogleFont("Roboto"), provider, FontWeight.Light),
-    Font(GoogleFont("Roboto"), provider, FontWeight.Normal),
-    Font(GoogleFont("Roboto"), provider, FontWeight.Medium),
-    Font(GoogleFont("Roboto"), provider, FontWeight.SemiBold),
-    Font(GoogleFont("Roboto"), provider, FontWeight.Bold),
-)
+val RobotoFamily = FontFamily.Default
 
 val KalazaTypography = Typography(
     // Display – Login screen heading, splash
