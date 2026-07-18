@@ -72,11 +72,13 @@ class DashboardViewModel(
     private val _totalPatients = MutableStateFlow(0)
     val totalPatients: StateFlow<Int> = _totalPatients.asStateFlow()
 
+    private val _showArchived = MutableStateFlow(false)
+    val showArchived: StateFlow<Boolean> = _showArchived.asStateFlow()
+
     init { load() }
 
     fun load() {
         val allPatients = patientRepo.getAllPatients()
-        _patients.value = allPatients
         _totalPatients.value = allPatients.size
         _pendingApprovals.value = approvalRepo.getPendingRequests().size
         // Count all pending medications across patients for today
@@ -84,12 +86,23 @@ class DashboardViewModel(
             medRepo.getMedicationsForPatient(p.id, LocalDate.now())
                 .count { it.status == MedStatus.PENDING || it.status == MedStatus.OVERDUE }
         }
+        applyFilters()
     }
 
     fun search(query: String) {
         _searchQuery.value = query
-        _patients.value = if (query.isBlank()) patientRepo.getAllPatients()
-                          else patientRepo.searchPatients(query)
+        applyFilters()
+    }
+
+    fun setShowArchived(show: Boolean) {
+        _showArchived.value = show
+        applyFilters()
+    }
+
+    private fun applyFilters() {
+        val query = _searchQuery.value
+        _patients.value = if (query.isBlank()) patientRepo.getAllPatients(includeArchived = _showArchived.value)
+                           else patientRepo.searchPatients(query, includeArchived = _showArchived.value)
     }
 }
 
@@ -191,6 +204,20 @@ class PatientViewModel(
             }
             onResult(true, "${changes.size} edit request(s) submitted for admin approval")
         }
+    }
+
+    fun archivePatient(patient: Patient) {
+        patientRepo.archivePatient(patient.id)
+        auditRepo.addLog(AuditLogEntry(
+            id = "al_${System.currentTimeMillis()}",
+            action = "Patient Archived",
+            performedById = SessionManager.getCurrentStaffId(),
+            performedByName = SessionManager.getCurrentStaffName(),
+            targetPatientId = patient.id,
+            targetPatientName = patient.name,
+            details = "Patient record archived",
+            iconName = "archive",
+        ))
     }
 }
 
@@ -421,7 +448,9 @@ class CareNoteViewModel(
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ApprovalViewModel(
-    private val repo: ApprovalRepository
+    private val repo: ApprovalRepository,
+    private val patientRepo: PatientRepository,
+    private val auditRepo: AuditRepository,
 ) : ViewModel() {
 
     private val _requests = MutableStateFlow<List<ApprovalRequest>>(emptyList())
@@ -432,13 +461,56 @@ class ApprovalViewModel(
     fun load() { _requests.value = repo.getAllRequests() }
 
     fun approve(id: String) {
-        repo.approve(id, SessionManager.getCurrentStaffName())
+        val request = repo.getRequestById(id) ?: return
+        repo.approve(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName())
+
+        val patient = patientRepo.getPatientById(request.patientId)
+        if (patient != null) {
+            patientRepo.updatePatient(applyFieldChange(patient, request.fieldChanged, request.newValue))
+        }
+
+        auditRepo.addLog(AuditLogEntry(
+            id = "al_${System.currentTimeMillis()}",
+            action = "Edit Request Approved",
+            performedById = SessionManager.getCurrentStaffId(),
+            performedByName = SessionManager.getCurrentStaffName(),
+            targetPatientId = request.patientId,
+            targetPatientName = request.patientName,
+            details = "Approved change to ${request.fieldChanged} requested by ${request.requestedByName}",
+            iconName = "check_circle",
+        ))
         load()
     }
 
     fun reject(id: String, reason: String) {
-        repo.reject(id, SessionManager.getCurrentStaffName(), reason)
+        val request = repo.getRequestById(id) ?: return
+        repo.reject(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName(), reason)
+
+        auditRepo.addLog(AuditLogEntry(
+            id = "al_${System.currentTimeMillis()}",
+            action = "Edit Request Rejected",
+            performedById = SessionManager.getCurrentStaffId(),
+            performedByName = SessionManager.getCurrentStaffName(),
+            targetPatientId = request.patientId,
+            targetPatientName = request.patientName,
+            details = "Rejected change to ${request.fieldChanged} requested by ${request.requestedByName} — $reason",
+            iconName = "cancel",
+        ))
         load()
+    }
+
+    private fun applyFieldChange(patient: Patient, field: String, newValue: String): Patient = when (field) {
+        "Name"               -> patient.copy(name = newValue)
+        "Age"                -> patient.copy(age = newValue.toIntOrNull() ?: patient.age)
+        "Gender"             -> patient.copy(gender = runCatching { Gender.valueOf(newValue) }.getOrDefault(patient.gender))
+        "Room No"            -> patient.copy(roomNo = newValue)
+        "Medical History"    -> patient.copy(medicalHistory = newValue)
+        "Current Issues"     -> patient.copy(currentIssues = newValue)
+        "Allergies"          -> patient.copy(allergies = newValue)
+        "Emergency Contact"  -> patient.copy(emergencyContact = newValue)
+        "Emergency Phone"    -> patient.copy(emergencyPhone = newValue)
+        "Primary Diagnosis"  -> patient.copy(primaryDiagnosis = newValue)
+        else                 -> patient
     }
 }
 
@@ -600,7 +672,7 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(CareNoteViewModel::class.java) ->
             CareNoteViewModel(careNoteRepo) as T
         modelClass.isAssignableFrom(ApprovalViewModel::class.java) ->
-            ApprovalViewModel(approvalRepo) as T
+            ApprovalViewModel(approvalRepo, patientRepo, auditRepo) as T
         modelClass.isAssignableFrom(AuditLogViewModel::class.java) ->
             AuditLogViewModel(auditRepo) as T
         modelClass.isAssignableFrom(ConfigViewModel::class.java) ->

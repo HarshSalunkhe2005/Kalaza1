@@ -39,7 +39,7 @@ interface PatientRepository {
     fun addPatient(patient: Patient)
     fun updatePatient(patient: Patient)
     fun archivePatient(id: String)
-    fun searchPatients(query: String): List<Patient>
+    fun searchPatients(query: String, includeArchived: Boolean = false): List<Patient>
 }
 
 class MockPatientRepository : PatientRepository {
@@ -63,8 +63,8 @@ class MockPatientRepository : PatientRepository {
         if (idx >= 0) patients[idx] = patients[idx].copy(isArchived = true)
     }
 
-    override fun searchPatients(query: String) =
-        patients.filter { !it.isArchived &&
+    override fun searchPatients(query: String, includeArchived: Boolean) =
+        patients.filter { (includeArchived || !it.isArchived) &&
             (it.name.contains(query, ignoreCase = true) || it.roomNo.contains(query, ignoreCase = true)) }
 }
 
@@ -242,8 +242,9 @@ class MockCareNoteRepository : CareNoteRepository {
 interface ApprovalRepository {
     fun getAllRequests(): List<ApprovalRequest>
     fun getPendingRequests(): List<ApprovalRequest>
-    fun approve(id: String, reviewerName: String)
-    fun reject(id: String, reviewerName: String, reason: String)
+    fun getRequestById(id: String): ApprovalRequest?
+    fun approve(id: String, reviewerId: String, reviewerName: String)
+    fun reject(id: String, reviewerId: String, reviewerName: String, reason: String)
     fun submitRequest(request: ApprovalRequest)
 }
 
@@ -252,20 +253,23 @@ class MockApprovalRepository : ApprovalRepository {
 
     override fun getAllRequests() = requests.sortedByDescending { it.timestamp }
     override fun getPendingRequests() = requests.filter { it.status == ApprovalStatus.PENDING }
+    override fun getRequestById(id: String) = requests.firstOrNull { it.id == id }
 
-    override fun approve(id: String, reviewerName: String) {
+    override fun approve(id: String, reviewerId: String, reviewerName: String) {
         val idx = requests.indexOfFirst { it.id == id }
         if (idx >= 0) requests[idx] = requests[idx].copy(
             status = ApprovalStatus.APPROVED,
+            reviewedById = reviewerId,
             reviewedByName = reviewerName,
             reviewedAt = java.time.LocalDateTime.now()
         )
     }
 
-    override fun reject(id: String, reviewerName: String, reason: String) {
+    override fun reject(id: String, reviewerId: String, reviewerName: String, reason: String) {
         val idx = requests.indexOfFirst { it.id == id }
         if (idx >= 0) requests[idx] = requests[idx].copy(
             status = ApprovalStatus.REJECTED,
+            reviewedById = reviewerId,
             reviewedByName = reviewerName,
             reviewedAt = java.time.LocalDateTime.now(),
             rejectionReason = reason

@@ -6,7 +6,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
@@ -125,8 +131,14 @@ private fun AuditLogItem(log: AuditLogEntry) {
 
 private fun getIconForName(name: String): ImageVector {
     return when (name) {
-        "person_add" -> Icons.Default.PersonAdd
-        "person" -> Icons.Default.Person
+        "person_add"   -> Icons.Default.PersonAdd
+        "person"       -> Icons.Default.Person
+        "medication"   -> Icons.Default.Medication
+        "monitor_heart" -> Icons.Default.MonitorHeart
+        "check_circle" -> Icons.Default.CheckCircle
+        "cancel"       -> Icons.Default.Cancel
+        "note_add"     -> Icons.Default.NoteAdd
+        "archive"      -> Icons.Default.Archive
         else -> Icons.Default.Edit
     }
 }

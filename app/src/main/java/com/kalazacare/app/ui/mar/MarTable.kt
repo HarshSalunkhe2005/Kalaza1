@@ -62,6 +62,14 @@ fun MarTable(
                             style = MaterialTheme.typography.labelMedium,
                             color = OnSurfaceVariant
                         )
+                        if (entry.notes.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Note: ${entry.notes}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OnSurfaceVariant
+                            )
+                        }
                         if (entry.status == MedStatus.ADMINISTERED && entry.administeredAt != null) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(

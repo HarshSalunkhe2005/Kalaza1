@@ -34,6 +34,7 @@ fun DashboardScreen(
     val pendingMeds by viewModel.pendingMeds.collectAsState()
     val pendingApprovals by viewModel.pendingApprovals.collectAsState()
     val totalPatients by viewModel.totalPatients.collectAsState()
+    val showArchived by viewModel.showArchived.collectAsState()
 
     Scaffold(
         topBar = {
@@ -98,6 +99,26 @@ fun DashboardScreen(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            if (SessionManager.isAdmin()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Show Archived",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Switch(
+                        checked = showArchived,
+                        onCheckedChange = { viewModel.setShowArchived(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = KalazaRed)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Patient List
             if (patients.isEmpty()) {

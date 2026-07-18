@@ -8,7 +8,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kalazacare.app.ui.*
+import com.kalazacare.app.ui.components.ConfirmDialog
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.components.PhotoConfirmDialog
 import com.kalazacare.app.ui.mar.MarTable
@@ -71,6 +74,8 @@ fun PatientProfileScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val p = patient
+    var showMenu by remember { mutableStateOf(false) }
+    var showArchiveConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -85,10 +90,46 @@ fun PatientProfileScreen(
                             tint = KalazaRed
                         )
                     }
+                    if (SessionManager.isAdmin() && p != null) {
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More Options",
+                                    tint = com.kalazacare.app.ui.theme.White
+                                )
+                            }
+                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(if (p.isArchived) "Already Archived" else "Archive Patient") },
+                                    enabled = !p.isArchived,
+                                    leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) },
+                                    onClick = {
+                                        showMenu = false
+                                        showArchiveConfirm = true
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             )
         }
     ) { innerPadding ->
+        if (showArchiveConfirm && p != null) {
+            ConfirmDialog(
+                title = "Archive Patient",
+                message = "Archive ${p.name}'s record? They will be hidden from the main patient list but can still be found via \"Show Archived\" on the Dashboard.",
+                confirmText = "Archive",
+                isDestructive = true,
+                onConfirm = {
+                    patientVm.archivePatient(p)
+                    showArchiveConfirm = false
+                    onBack()
+                },
+                onDismiss = { showArchiveConfirm = false }
+            )
+        }
         if (p == null) {
             Box(
                 modifier = Modifier
@@ -485,6 +526,7 @@ private fun AddMedicationDialog(
     var quantity by remember { mutableStateOf("") }
     var hour by remember { mutableStateOf("8") }
     var minute by remember { mutableStateOf("00") }
+    var notes by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -502,6 +544,7 @@ private fun AddMedicationDialog(
                     Text(":", style = MaterialTheme.typography.titleLarge)
                     OutlinedTextField(value = minute, onValueChange = { minute = it }, label = { Text("MM") }, modifier = Modifier.width(72.dp), singleLine = true)
                 }
+                OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -517,6 +560,7 @@ private fun AddMedicationDialog(
                                 hour.toIntOrNull() ?: 8,
                                 minute.toIntOrNull() ?: 0
                             ),
+                            notes = notes,
                         )
                     )
                 },

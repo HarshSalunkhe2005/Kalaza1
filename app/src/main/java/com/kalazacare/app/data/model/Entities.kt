@@ -36,7 +36,6 @@ data class Patient(
     val age: Int = 0,
     val gender: Gender = Gender.MALE,
     val roomNo: String = "",
-    val photoUrl: String = "",
     val medicalHistory: String = "",
     val currentIssues: String = "",
     val allergies: String = "",
@@ -152,7 +151,6 @@ data class CareNote(
     val patientId: String = "",
     val staffId: String = "",
     val staffName: String = "",
-    val date: LocalDate = LocalDate.now(),
     val timestamp: LocalDateTime = LocalDateTime.now(),
     val note: String = "",
 )

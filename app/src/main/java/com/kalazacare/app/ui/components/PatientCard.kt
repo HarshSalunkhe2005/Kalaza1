@@ -76,13 +76,29 @@ fun PatientCard(
 
                 // Patient info
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text  = patient.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OnSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text  = patient.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = OnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (patient.isArchived) {
+                            Spacer(Modifier.width(6.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(50.dp),
+                            ) {
+                                Text(
+                                    text = "Archived",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = OnSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text  = "${patient.age} yrs • ${patient.gender.name.lowercase().replaceFirstChar { it.uppercase() }} • Room ${patient.roomNo}",
