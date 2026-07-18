@@ -35,9 +35,10 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - **Medicine Tab (Medicine Staff only):** A facility-wide "rounds" view of every dose still awaiting allotment today, plus any pending allotment requests raised by regular staff. Allotting a dose requires photo evidence.
 
 ### 4. Admin Workflows
-- **Approval Queue:** A dedicated screen where Admins can review, approve, or reject field-level changes requested by Staff.
-- **Audit Logs:** A read-only chronological log of all major actions (Patient Added, Patient Edited, Approvals, Rejections, Medication Allotted).
+- **Approval Queue:** A dedicated screen where Admins can review, approve, or reject field-level changes requested by Staff. Approving applies the change directly to the Patient record (not just the request's status) and logs to Audit; rejecting also logs to Audit.
+- **Audit Logs:** A read-only chronological log of all major actions (Patient Added, Patient Edited, Approvals, Rejections, Medication Allotted, Patient Archived), each with the correct icon for its action type.
 - **Configuration / Staff Management:** Admins can add new staff (Regular or Medicine role), revoke existing staff, activate revoked staff, or delete staff entirely. Admins cannot revoke themselves.
+- **Archive Patient:** From a patient's profile (overflow menu, Admin-only), Admin can archive a patient's record after confirming. Archived patients are hidden from the main Dashboard list by default; a "Show Archived" toggle on the Dashboard reveals them (marked with an "Archived" badge).
 
 ### 5. UI Polish & Theming
 - Strict adherence to the `KalazaRed` and `KalazaDarkMaroon` color palette.
@@ -85,8 +86,15 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 1. Admin opens the Approval Queue.
 2. Clicks on the pending request for the Room Number change.
 3. Clicks "Approve".
-4. `ApprovalRepository` marks the request as APPROVED and logs the reviewer's name. (Note: In a full backend system, this step would also apply the new Room Number to the actual Patient record).
-5. An `AuditLogEntry` is generated.
+4. `ApprovalRepository` marks the request as APPROVED and logs the reviewer's id/name.
+5. `ApprovalViewModel` applies the new Room Number directly to the actual Patient record via `PatientRepository.updatePatient`.
+6. An `AuditLogEntry` ("Edit Request Approved") is generated. Rejecting a request similarly logs an "Edit Request Rejected" entry, without touching the Patient record.
+
+### Admin Archiving a Patient Workflow
+1. Admin opens a patient's profile and taps the overflow menu (⋮) next to Edit.
+2. Taps "Archive Patient" and confirms in the dialog.
+3. `PatientRepository.archivePatient` flags the patient as archived; an `AuditLogEntry` ("Patient Archived") is generated, and the app navigates back to the Dashboard.
+4. The patient no longer appears in the default Dashboard list or search results. Toggling "Show Archived" (Admin-only) reveals them again, tagged with an "Archived" badge.
 
 ### Staff Management Workflow
 1. Admin navigates to the Config tab.
