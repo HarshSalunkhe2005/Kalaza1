@@ -3,6 +3,7 @@ package com.kalazacare.app.data.repository
 import com.kalazacare.app.data.database.MockData
 import com.kalazacare.app.data.model.*
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth
@@ -102,9 +103,18 @@ class MockVitalsRepository : VitalsRepository {
 interface MedicationRepository {
     fun getMedicationsForPatient(patientId: String, date: LocalDate): List<MedicationEntry>
     fun getMedicationsForPatient(patientId: String): List<MedicationEntry>
+    fun getMedicationsForDate(date: LocalDate): List<MedicationEntry>
     fun addMedication(entry: MedicationEntry)
     fun updateMedication(entry: MedicationEntry)
-    fun markAdministered(id: String, staffName: String)
+    fun markAdministered(id: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime)
+    fun allotMedication(id: String, staffId: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime)
+}
+
+/** PENDING doses whose scheduled time has already passed read as OVERDUE without mutating storage. */
+private fun MedicationEntry.withComputedStatus(): MedicationEntry {
+    if (status != MedStatus.PENDING) return this
+    val scheduledAt = java.time.LocalDateTime.of(scheduledDate, scheduleTime)
+    return if (scheduledAt.isBefore(LocalDateTime.now())) copy(status = MedStatus.OVERDUE) else this
 }
 
 class MockMedicationRepository : MedicationRepository {
@@ -113,9 +123,15 @@ class MockMedicationRepository : MedicationRepository {
     override fun getMedicationsForPatient(patientId: String, date: LocalDate) =
         entries.filter { it.patientId == patientId && it.scheduledDate == date }
             .sortedBy { it.scheduleTime }
+            .map { it.withComputedStatus() }
 
     override fun getMedicationsForPatient(patientId: String) =
         entries.filter { it.patientId == patientId }.sortedBy { it.scheduleTime }
+            .map { it.withComputedStatus() }
+
+    override fun getMedicationsForDate(date: LocalDate) =
+        entries.filter { it.scheduledDate == date }.sortedBy { it.scheduleTime }
+            .map { it.withComputedStatus() }
 
     override fun addMedication(entry: MedicationEntry) { entries.add(entry) }
 
@@ -124,12 +140,26 @@ class MockMedicationRepository : MedicationRepository {
         if (idx >= 0) entries[idx] = entry
     }
 
-    override fun markAdministered(id: String, staffName: String) {
+    override fun markAdministered(id: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime) {
         val idx = entries.indexOfFirst { it.id == id }
         if (idx >= 0) entries[idx] = entries[idx].copy(
             status = MedStatus.ADMINISTERED,
             administeredBy = staffName,
-            administeredAt = java.time.LocalDateTime.now()
+            administeredAt = LocalDateTime.now(),
+            administeredPhotoUrl = photoUrl,
+            administeredPhotoExpiresAt = photoExpiresAt,
+        )
+    }
+
+    override fun allotMedication(id: String, staffId: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime) {
+        val idx = entries.indexOfFirst { it.id == id }
+        if (idx >= 0) entries[idx] = entries[idx].copy(
+            allotmentStatus = AllotmentStatus.ALLOTTED,
+            allottedById = staffId,
+            allottedByName = staffName,
+            allottedAt = LocalDateTime.now(),
+            allotmentPhotoUrl = photoUrl,
+            allotmentPhotoExpiresAt = photoExpiresAt,
         )
     }
 }
@@ -243,6 +273,32 @@ class MockApprovalRepository : ApprovalRepository {
     }
 
     override fun submitRequest(request: ApprovalRequest) { requests.add(request) }
+}
+
+interface AllotmentRequestRepository {
+    fun getAllRequests(): List<AllotmentRequest>
+    fun getPendingRequests(): List<AllotmentRequest>
+    fun submitRequest(request: AllotmentRequest)
+    fun fulfillRequest(id: String, staffId: String, staffName: String)
+}
+
+class MockAllotmentRequestRepository : AllotmentRequestRepository {
+    private val requests = MockData.allotmentRequests.toMutableList()
+
+    override fun getAllRequests() = requests.sortedByDescending { it.timestamp }
+    override fun getPendingRequests() = requests.filter { it.status == AllotmentRequestStatus.PENDING }
+
+    override fun submitRequest(request: AllotmentRequest) { requests.add(request) }
+
+    override fun fulfillRequest(id: String, staffId: String, staffName: String) {
+        val idx = requests.indexOfFirst { it.id == id }
+        if (idx >= 0) requests[idx] = requests[idx].copy(
+            status = AllotmentRequestStatus.FULFILLED,
+            fulfilledById = staffId,
+            fulfilledByName = staffName,
+            fulfilledAt = LocalDateTime.now(),
+        )
+    }
 }
 
 interface AuditRepository {

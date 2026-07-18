@@ -200,9 +200,12 @@ fun AddEditPatientScreen(
                             if (success) onSaved()
                         }
                     } else {
-                        viewModel.savePatient(p)
-                        Toast.makeText(context, "Patient added successfully", Toast.LENGTH_SHORT).show()
-                        onSaved()
+                        // New patients are only reachable via the Admin-only FAB, so this
+                        // always takes the direct-save + audit-log branch below.
+                        viewModel.saveOrRequestApproval(Patient(), p) { success, msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            if (success) onSaved()
+                        }
                     }
                 },
                 modifier = Modifier

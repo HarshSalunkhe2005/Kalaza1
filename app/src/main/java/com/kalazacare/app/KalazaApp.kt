@@ -20,6 +20,7 @@ class KalazaApp : Application() {
     lateinit var approvalRepository:   ApprovalRepository
     lateinit var auditRepository:      AuditRepository
     lateinit var staffRepository:      StaffRepository
+    lateinit var allotmentRequestRepository: AllotmentRequestRepository
 
     override fun onCreate() {
         super.onCreate()
@@ -33,5 +34,6 @@ class KalazaApp : Application() {
         approvalRepository    = MockApprovalRepository()
         auditRepository       = MockAuditRepository()
         staffRepository       = MockStaffRepository()
+        allotmentRequestRepository = MockAllotmentRequestRepository()
     }
 }

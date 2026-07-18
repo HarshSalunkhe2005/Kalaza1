@@ -20,14 +20,17 @@ object MockData {
             role = UserRole.ADMIN, phone = "+91 98765 00001", isActive = true,
             joinedDate = LocalDate.of(2022, 3, 1)),
         Staff(id = "staff_2", name = "Nurse Kavita Desai", email = "kavita@kalazacare.com",
-            role = UserRole.STAFF, phone = "+91 98765 00002", isActive = true,
+            role = UserRole.MEDICINE_STAFF, phone = "+91 98765 00002", isActive = true,
             joinedDate = LocalDate.of(2023, 6, 15)),
         Staff(id = "staff_3", name = "Caregiver Rahul Patil", email = "rahul@kalazacare.com",
-            role = UserRole.STAFF, phone = "+91 98765 00003", isActive = true,
+            role = UserRole.MEDICINE_STAFF, phone = "+91 98765 00003", isActive = true,
             joinedDate = LocalDate.of(2024, 1, 10)),
         Staff(id = "staff_4", name = "Nurse Sunita More", email = "sunita@kalazacare.com",
             role = UserRole.STAFF, phone = "+91 98765 00004", isActive = false,
             joinedDate = LocalDate.of(2023, 9, 5)),
+        Staff(id = "staff_5", name = "Caregiver Anjali Rane", email = "anjali@kalazacare.com",
+            role = UserRole.STAFF, phone = "+91 98765 00005", isActive = true,
+            joinedDate = LocalDate.of(2024, 5, 20)),
     )
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -133,11 +136,23 @@ object MockData {
         MedicationEntry(id = "m1", patientId = "p1", medicineName = "Metformin",
             dose = "500mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
-            administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(2)),
+            administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(2),
+            allotmentStatus = AllotmentStatus.ALLOTTED, allottedById = "staff_2", allottedByName = "Kavita Desai",
+            allottedAt = LocalDateTime.now().minusHours(2).minusMinutes(15),
+            allotmentPhotoUrl = "mock://evidence/seed_m1_allot.jpg",
+            allotmentPhotoExpiresAt = LocalDateTime.now().plusHours(46),
+            administeredPhotoUrl = "mock://evidence/seed_m1_admin.jpg",
+            administeredPhotoExpiresAt = LocalDateTime.now().plusHours(46)),
         MedicationEntry(id = "m2", patientId = "p1", medicineName = "Amlodipine",
             dose = "5mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
-            administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(2)),
+            administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(2),
+            allotmentStatus = AllotmentStatus.ALLOTTED, allottedById = "staff_2", allottedByName = "Kavita Desai",
+            allottedAt = LocalDateTime.now().minusHours(2).minusMinutes(15),
+            allotmentPhotoUrl = "mock://evidence/seed_m2_allot.jpg",
+            allotmentPhotoExpiresAt = LocalDateTime.now().plusHours(46),
+            administeredPhotoUrl = "mock://evidence/seed_m2_admin.jpg",
+            administeredPhotoExpiresAt = LocalDateTime.now().plusHours(46)),
         MedicationEntry(id = "m3", patientId = "p1", medicineName = "Aspirin",
             dose = "75mg", quantity = "1 tablet", scheduleTime = LocalTime.of(13, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING),
@@ -147,7 +162,13 @@ object MockData {
         MedicationEntry(id = "m5", patientId = "p1", medicineName = "Vitamin D3",
             dose = "1000IU", quantity = "1 capsule", scheduleTime = LocalTime.of(9, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
-            administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(1)),
+            administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(1),
+            allotmentStatus = AllotmentStatus.ALLOTTED, allottedById = "staff_2", allottedByName = "Kavita Desai",
+            allottedAt = LocalDateTime.now().minusHours(1).minusMinutes(10),
+            allotmentPhotoUrl = "mock://evidence/seed_m5_allot.jpg",
+            allotmentPhotoExpiresAt = LocalDateTime.now().plusHours(47),
+            administeredPhotoUrl = "mock://evidence/seed_m5_admin.jpg",
+            administeredPhotoExpiresAt = LocalDateTime.now().plusHours(47)),
     )
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -268,6 +289,17 @@ object MockData {
             performedByName = "Admin Priya Sharma", targetPatientName = "Malti Deshpande",
             details = "New patient admitted — Room 202",
             timestamp = LocalDateTime.now().minusDays(10), iconName = "person_add"),
+    )
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Allotment Requests (regular staff flagging a forgotten allotment)
+    // ──────────────────────────────────────────────────────────────────────────
+    val allotmentRequests = listOf(
+        AllotmentRequest(id = "arq1", medicationEntryId = "m3", patientId = "p1", patientName = "Ramesh Kulkarni",
+            medicineName = "Aspirin", scheduledTime = LocalTime.of(13, 0),
+            requestedById = "staff_5", requestedByName = "Anjali Rane",
+            status = AllotmentRequestStatus.PENDING,
+            timestamp = LocalDateTime.now().minusMinutes(20)),
     )
 
     // ──────────────────────────────────────────────────────────────────────────

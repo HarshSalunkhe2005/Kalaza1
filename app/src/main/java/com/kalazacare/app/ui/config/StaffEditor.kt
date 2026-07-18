@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.Staff
 import com.kalazacare.app.data.model.UserRole
+import com.kalazacare.app.data.model.displayLabel
 import com.kalazacare.app.ui.components.RoleBadge
 import com.kalazacare.app.ui.theme.KalazaRed
 import java.time.format.DateTimeFormatter
@@ -57,7 +58,7 @@ fun StaffEditor(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                RoleBadge(isAdmin = staff.role == UserRole.ADMIN)
+                                RoleBadge(role = staff.role)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -171,7 +172,7 @@ private fun AddStaffDialog(
                     onExpandedChange = { expanded = !expanded }
                 ) {
                     OutlinedTextField(
-                        value = selectedRole.name,
+                        value = selectedRole.displayLabel(),
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Role") },
@@ -182,9 +183,11 @@ private fun AddStaffDialog(
                         expanded = expanded,
                         onDismissRequest = { expanded = false }
                     ) {
-                        UserRole.values().forEach { role ->
+                        // Admin can only assign the two operational roles — ADMIN accounts
+                        // aren't created through this dialog.
+                        UserRole.values().filter { it != UserRole.ADMIN }.forEach { role ->
                             DropdownMenuItem(
-                                text = { Text(role.name) },
+                                text = { Text(role.displayLabel()) },
                                 onClick = {
                                     selectedRole = role
                                     expanded = false

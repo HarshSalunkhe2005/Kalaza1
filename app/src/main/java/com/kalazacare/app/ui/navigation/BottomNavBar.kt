@@ -24,9 +24,13 @@ data class BottomNavItem(
 @Composable
 fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
     val isAdmin = SessionManager.isAdmin()
+    val isMedicineStaff = SessionManager.isMedicineStaff()
 
     val staffItems = listOf(
         BottomNavItem(Routes.DASHBOARD, "Patients", Icons.Filled.People, Icons.Outlined.People),
+    )
+    val medicineStaffItems = staffItems + listOf(
+        BottomNavItem(Routes.MEDICINE, "Medicine", Icons.Filled.Medication, Icons.Outlined.Medication),
     )
     val adminItems = listOf(
         BottomNavItem(Routes.DASHBOARD,     "Patients",  Icons.Filled.People, Icons.Outlined.People),
@@ -35,7 +39,11 @@ fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
         BottomNavItem(Routes.CONFIG,        "Config",    Icons.Filled.Settings, Icons.Outlined.Settings),
         BottomNavItem(Routes.SUMMARY,       "Summary",   Icons.Filled.BarChart, Icons.Outlined.BarChart),
     )
-    val items = if (isAdmin) adminItems else staffItems
+    val items = when {
+        isAdmin          -> adminItems
+        isMedicineStaff  -> medicineStaffItems
+        else             -> staffItems
+    }
 
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,

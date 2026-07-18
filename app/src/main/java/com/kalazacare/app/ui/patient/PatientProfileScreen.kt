@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kalazacare.app.ui.*
 import com.kalazacare.app.ui.components.KalazaTopBar
+import com.kalazacare.app.ui.components.PhotoConfirmDialog
 import com.kalazacare.app.ui.mar.MarTable
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.utility.UtilityTable
@@ -425,11 +426,13 @@ private fun MarTabContent(
     marVm: MarViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var administerTargetId by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         MarTable(
             medications = medications,
-            onMarkAdministered = { id -> marVm.markAdministered(id) }
+            onMarkAdministered = { id -> administerTargetId = id },
+            onRequestAllotment = { entry -> marVm.requestAllotment(entry) }
         )
 
         // Only Admin can add medications
@@ -455,6 +458,18 @@ private fun MarTabContent(
                 marVm.addMedication(entry)
                 showAddDialog = false
             }
+        )
+    }
+
+    administerTargetId?.let { id ->
+        PhotoConfirmDialog(
+            title = "Confirm Medication Given",
+            message = "Confirm the dose was given to the patient. A photo is required as proof.",
+            onConfirm = {
+                marVm.markAdministered(id)
+                administerTargetId = null
+            },
+            onDismiss = { administerTargetId = null }
         )
     }
 }

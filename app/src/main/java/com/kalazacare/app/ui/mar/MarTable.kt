@@ -9,9 +9,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kalazacare.app.data.model.AllotmentStatus
 import com.kalazacare.app.data.model.MedStatus
 import com.kalazacare.app.data.model.MedicationEntry
 import com.kalazacare.app.ui.components.MedStatusBadge
+import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.OnSurface
 import com.kalazacare.app.ui.theme.OnSurfaceVariant
 import com.kalazacare.app.ui.theme.White
@@ -21,6 +23,7 @@ import com.kalazacare.app.util.DateUtils
 fun MarTable(
     medications: List<MedicationEntry>,
     onMarkAdministered: (String) -> Unit,
+    onRequestAllotment: (MedicationEntry) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -66,6 +69,26 @@ fun MarTable(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (entry.allotmentStatus == AllotmentStatus.ALLOTTED)
+                                "Allotted by ${entry.allottedByName}"
+                            else
+                                "Not allotted yet",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (entry.allotmentStatus == AllotmentStatus.ALLOTTED)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                        if (entry.allotmentStatus == AllotmentStatus.NOT_ALLOTTED && entry.status != MedStatus.ADMINISTERED) {
+                            TextButton(
+                                onClick = { onRequestAllotment(entry) },
+                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                            ) {
+                                Text("Request Allotment", color = KalazaRed, style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
 

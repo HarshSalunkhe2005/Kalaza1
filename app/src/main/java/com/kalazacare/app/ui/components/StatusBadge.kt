@@ -10,6 +10,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.ApprovalStatus
 import com.kalazacare.app.data.model.MedStatus
+import com.kalazacare.app.data.model.UserRole
+import com.kalazacare.app.data.model.displayLabel
 import com.kalazacare.app.ui.theme.*
 
 @Composable
@@ -46,9 +48,10 @@ fun MedStatusBadge(status: MedStatus) {
 }
 
 @Composable
-fun RoleBadge(isAdmin: Boolean) {
-    if (isAdmin)
-        StatusBadge("Admin", KalazaRed, White)
-    else
-        StatusBadge("Staff", SurfaceVariant, OnSurfaceVariant)
+fun RoleBadge(role: UserRole) {
+    when (role) {
+        UserRole.ADMIN          -> StatusBadge(role.displayLabel(), KalazaRed, White)
+        UserRole.MEDICINE_STAFF -> StatusBadge(role.displayLabel(), Color(0xFFD1E7DD), Color(0xFF0F5132))
+        UserRole.STAFF          -> StatusBadge(role.displayLabel(), SurfaceVariant, OnSurfaceVariant)
+    }
 }

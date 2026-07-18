@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
+import com.kalazacare.app.util.PhotoCapture
 import com.kalazacare.app.util.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -191,15 +192,6 @@ class PatientViewModel(
             onResult(true, "${changes.size} edit request(s) submitted for admin approval")
         }
     }
-
-    fun savePatient(patient: Patient) {
-        if (patient.id.isEmpty()) {
-            patientRepo.addPatient(patient.copy(id = "p_${System.currentTimeMillis()}"))
-        } else {
-            patientRepo.updatePatient(patient)
-        }
-        _patient.value = patient
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,7 +228,9 @@ class VitalsViewModel(
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MarViewModel(
-    private val repo: MedicationRepository
+    private val repo: MedicationRepository,
+    private val allotmentRequestRepo: AllotmentRequestRepository,
+    private val patientRepo: PatientRepository,
 ) : ViewModel() {
 
     private val _medications = MutableStateFlow<List<MedicationEntry>>(emptyList())
@@ -250,20 +244,106 @@ class MarViewModel(
         _medications.value   = repo.getMedicationsForPatient(patientId, date)
     }
 
+    /** Called once the caller has captured photo evidence for the "given" checkpoint. */
     fun markAdministered(id: String) {
-        repo.markAdministered(id, SessionManager.getCurrentStaffName())
-        _medications.value = _medications.value.map {
-            if (it.id == id) it.copy(
-                status = MedStatus.ADMINISTERED,
-                administeredBy = SessionManager.getCurrentStaffName(),
-                administeredAt = LocalDateTime.now()
-            ) else it
-        }
+        val photo = PhotoCapture.capture()
+        repo.markAdministered(id, SessionManager.getCurrentStaffName(), photo.url, photo.expiresAt)
+        val patientId = _medications.value.firstOrNull { it.id == id }?.patientId
+        if (patientId != null) load(patientId, _selectedDate.value)
+    }
+
+    /** Regular staff flagging that medicine-staff forgot to allot this dose ahead of time. */
+    fun requestAllotment(entry: MedicationEntry) {
+        if (entry.allotmentStatus == AllotmentStatus.ALLOTTED) return
+        val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
+        allotmentRequestRepo.submitRequest(
+            AllotmentRequest(
+                id = "arq_${System.currentTimeMillis()}",
+                medicationEntryId = entry.id,
+                patientId = entry.patientId,
+                patientName = patientName,
+                medicineName = entry.medicineName,
+                scheduledTime = entry.scheduleTime,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+            )
+        )
     }
 
     fun addMedication(entry: MedicationEntry) {
         repo.addMedication(entry.copy(id = "m_${System.currentTimeMillis()}"))
         load(entry.patientId, entry.scheduledDate)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Medicine (medicine-staff allotment rounds)
+// ─────────────────────────────────────────────────────────────────────────────
+
+data class MedicineRoundItem(
+    val entry: MedicationEntry,
+    val patientName: String,
+    val patientRoom: String,
+)
+
+class MedicineViewModel(
+    private val medRepo: MedicationRepository,
+    private val patientRepo: PatientRepository,
+    private val allotmentRequestRepo: AllotmentRequestRepository,
+    private val auditRepo: AuditRepository,
+) : ViewModel() {
+
+    private val _dueForAllotment = MutableStateFlow<List<MedicineRoundItem>>(emptyList())
+    val dueForAllotment: StateFlow<List<MedicineRoundItem>> = _dueForAllotment.asStateFlow()
+
+    private val _pendingRequests = MutableStateFlow<List<AllotmentRequest>>(emptyList())
+    val pendingRequests: StateFlow<List<AllotmentRequest>> = _pendingRequests.asStateFlow()
+
+    init { load() }
+
+    fun load() {
+        val today = medRepo.getMedicationsForDate(LocalDate.now())
+        _dueForAllotment.value = today
+            .filter { it.allotmentStatus == AllotmentStatus.NOT_ALLOTTED && it.status != MedStatus.ADMINISTERED }
+            .sortedBy { it.scheduleTime }
+            .map { entry ->
+                val patient = patientRepo.getPatientById(entry.patientId)
+                MedicineRoundItem(entry, patient?.name ?: "Unknown", patient?.roomNo ?: "—")
+            }
+        _pendingRequests.value = allotmentRequestRepo.getPendingRequests()
+    }
+
+    /** Medicine-staff confirms they've prepared a dose (photo evidence already captured by caller). */
+    fun allot(entry: MedicationEntry) {
+        allotWithoutReload(entry)
+        load()
+    }
+
+    /** Fulfils a regular staff's "medicine-staff forgot" request, allotting the dose in one step. */
+    fun fulfillRequest(request: AllotmentRequest, entry: MedicationEntry) {
+        allotWithoutReload(entry)
+        allotmentRequestRepo.fulfillRequest(request.id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName())
+        load()
+    }
+
+    private fun allotWithoutReload(entry: MedicationEntry) {
+        val photo = PhotoCapture.capture()
+        medRepo.allotMedication(
+            entry.id,
+            SessionManager.getCurrentStaffId(),
+            SessionManager.getCurrentStaffName(),
+            photo.url,
+            photo.expiresAt,
+        )
+        auditRepo.addLog(AuditLogEntry(
+            id = "al_${System.currentTimeMillis()}",
+            action = "Medication Allotted",
+            performedById = SessionManager.getCurrentStaffId(),
+            performedByName = SessionManager.getCurrentStaffName(),
+            targetPatientId = entry.patientId,
+            details = "${entry.medicineName} ${entry.dose} allotted for ${entry.patientId}",
+            iconName = "medication",
+        ))
     }
 }
 
@@ -496,6 +576,7 @@ class KalazaViewModelFactory(
     private val approvalRepo: ApprovalRepository,
     private val auditRepo: AuditRepository,
     private val staffRepo: StaffRepository,
+    private val allotmentRequestRepo: AllotmentRequestRepository,
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
@@ -509,7 +590,9 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(VitalsViewModel::class.java) ->
             VitalsViewModel(vitalsRepo) as T
         modelClass.isAssignableFrom(MarViewModel::class.java) ->
-            MarViewModel(medRepo) as T
+            MarViewModel(medRepo, allotmentRequestRepo, patientRepo) as T
+        modelClass.isAssignableFrom(MedicineViewModel::class.java) ->
+            MedicineViewModel(medRepo, patientRepo, allotmentRequestRepo, auditRepo) as T
         modelClass.isAssignableFrom(UtilityViewModel::class.java) ->
             UtilityViewModel(utilityRepo) as T
         modelClass.isAssignableFrom(DoctorVisitViewModel::class.java) ->

@@ -5,6 +5,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
@@ -16,6 +19,7 @@ import com.kalazacare.app.ui.auditlog.AuditLogScreen
 import com.kalazacare.app.ui.config.ConfigScreen
 import com.kalazacare.app.ui.dashboard.DashboardScreen
 import com.kalazacare.app.ui.login.LoginScreen
+import com.kalazacare.app.ui.medicine.MedicineScreen
 import com.kalazacare.app.ui.patient.AddEditPatientScreen
 import com.kalazacare.app.ui.patient.PatientProfileScreen
 import com.kalazacare.app.ui.summary.SummaryScreen
@@ -31,9 +35,28 @@ object Routes {
     const val AUDIT_LOG       = "auditlog"
     const val CONFIG          = "config"
     const val SUMMARY         = "summary"
+    const val MEDICINE        = "medicine"
 
     fun patientProfile(id: String) = "patient/$id"
     fun patientEdit(id: String)    = "patient/$id/edit"
+}
+
+/**
+ * Bottom-nav destinations stay alive in the backstack (saveState/restoreState),
+ * so their ViewModel's init{} only runs once. Without this, stats/lists go
+ * stale after e.g. approving a request or adding a patient elsewhere and
+ * returning via a tab. Re-run [onResume] whenever the destination resumes.
+ */
+@Composable
+private fun ReloadOnResume(onResume: () -> Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) onResume()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 }
 
 @Composable
@@ -57,6 +80,7 @@ fun KalazaNavHost() {
             approvalRepo    = app.approvalRepository,
             auditRepo       = app.auditRepository,
             staffRepo       = app.staffRepository,
+            allotmentRequestRepo = app.allotmentRequestRepository,
         )
     }
 
@@ -71,7 +95,7 @@ fun KalazaNavHost() {
     // Routes where bottom nav should be visible
     val bottomNavRoutes = setOf(
         Routes.DASHBOARD, Routes.APPROVAL_QUEUE,
-        Routes.AUDIT_LOG, Routes.CONFIG, Routes.SUMMARY
+        Routes.AUDIT_LOG, Routes.CONFIG, Routes.SUMMARY, Routes.MEDICINE
     )
     val showBottomNav = currentRoute in bottomNavRoutes
 
@@ -105,6 +129,7 @@ fun KalazaNavHost() {
             // ── Dashboard ──────────────────────────────────────────────────────
             composable(Routes.DASHBOARD) {
                 val vm: DashboardViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load() }
                 DashboardScreen(
                     viewModel = vm,
                     onPatientClick = { patientId ->
@@ -158,6 +183,7 @@ fun KalazaNavHost() {
             // ── Approval Queue ─────────────────────────────────────────────────
             composable(Routes.APPROVAL_QUEUE) {
                 val vm: ApprovalViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load() }
                 ApprovalQueueScreen(
                     viewModel = vm,
                     onBack = { navController.popBackStack() },
@@ -168,6 +194,7 @@ fun KalazaNavHost() {
             // ── Audit Log ──────────────────────────────────────────────────────
             composable(Routes.AUDIT_LOG) {
                 val vm: AuditLogViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load() }
                 AuditLogScreen(
                     viewModel = vm,
                     onBack = { navController.popBackStack() },
@@ -178,6 +205,7 @@ fun KalazaNavHost() {
             // ── Config ─────────────────────────────────────────────────────────
             composable(Routes.CONFIG) {
                 val vm: ConfigViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load() }
                 ConfigScreen(
                     viewModel = vm,
                     onBack = { navController.popBackStack() },
@@ -188,9 +216,20 @@ fun KalazaNavHost() {
             // ── Summary ────────────────────────────────────────────────────────
             composable(Routes.SUMMARY) {
                 val vm: SummaryViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load(vm.selectedDate.value) }
                 SummaryScreen(
                     viewModel = vm,
                     onBack = { navController.popBackStack() },
+                    onLogout = onLogout
+                )
+            }
+
+            // ── Medicine (medicine-staff allotment rounds) ────────────────────────
+            composable(Routes.MEDICINE) {
+                val vm: MedicineViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load() }
+                MedicineScreen(
+                    viewModel = vm,
                     onLogout = onLogout
                 )
             }

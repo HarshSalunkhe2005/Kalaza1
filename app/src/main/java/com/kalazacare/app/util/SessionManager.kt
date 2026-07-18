@@ -18,6 +18,8 @@ object SessionManager {
 
     fun isAdmin(): Boolean = currentStaff?.role == UserRole.ADMIN
 
+    fun isMedicineStaff(): Boolean = currentStaff?.role == UserRole.MEDICINE_STAFF
+
     fun getCurrentStaffName(): String = currentStaff?.name ?: "Unknown"
 
     fun getCurrentStaffId(): String = currentStaff?.id ?: ""

@@ -8,13 +8,23 @@ import java.time.LocalTime
 // Enumerations
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum class UserRole { ADMIN, STAFF }
+enum class UserRole { ADMIN, STAFF, MEDICINE_STAFF }
+
+fun UserRole.displayLabel(): String = when (this) {
+    UserRole.ADMIN          -> "Admin"
+    UserRole.STAFF          -> "Regular Staff"
+    UserRole.MEDICINE_STAFF -> "Medicine Staff"
+}
 
 enum class Gender { MALE, FEMALE, OTHER }
 
 enum class ApprovalStatus { PENDING, APPROVED, REJECTED }
 
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
+
+enum class AllotmentStatus { NOT_ALLOTTED, ALLOTTED }
+
+enum class AllotmentRequestStatus { PENDING, FULFILLED }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Entities
@@ -77,6 +87,37 @@ data class MedicationEntry(
     val administeredBy: String = "",
     val administeredAt: LocalDateTime? = null,
     val notes: String = "",
+    // ── Medicine-staff allotment checkpoint (prepared for handoff to whoever administers) ──
+    val allotmentStatus: AllotmentStatus = AllotmentStatus.NOT_ALLOTTED,
+    val allottedById: String = "",
+    val allottedByName: String = "",
+    val allottedAt: LocalDateTime? = null,
+    val allotmentPhotoUrl: String = "",
+    val allotmentPhotoExpiresAt: LocalDateTime? = null,
+    // ── Administration checkpoint photo (proof medicine was actually given) ──
+    val administeredPhotoUrl: String = "",
+    val administeredPhotoExpiresAt: LocalDateTime? = null,
+)
+
+/**
+ * Raised by regular staff when the assigned medicine-staff member forgot
+ * to allot a dose ahead of its scheduled time. Stands in for a push
+ * notification to medicine-staff until FCM is wired.
+ */
+data class AllotmentRequest(
+    val id: String = "",
+    val medicationEntryId: String = "",
+    val patientId: String = "",
+    val patientName: String = "",
+    val medicineName: String = "",
+    val scheduledTime: LocalTime = LocalTime.now(),
+    val requestedById: String = "",
+    val requestedByName: String = "",
+    val status: AllotmentRequestStatus = AllotmentRequestStatus.PENDING,
+    val fulfilledById: String = "",
+    val fulfilledByName: String = "",
+    val timestamp: LocalDateTime = LocalDateTime.now(),
+    val fulfilledAt: LocalDateTime? = null,
 )
 
 data class UtilityRecord(
