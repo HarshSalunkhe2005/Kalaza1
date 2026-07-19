@@ -1,6 +1,5 @@
 package com.kalazacare.app.ui.navigation
 
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,25 +23,25 @@ data class BottomNavItem(
 @Composable
 fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
     val isAdmin = SessionManager.isAdmin()
-    val isMedicineStaff = SessionManager.isMedicineStaff()
+    val isSupervisor = SessionManager.isSupervisor()   // CHANGE 8
 
     val staffItems = listOf(
         BottomNavItem(Routes.DASHBOARD, "Patients", Icons.Filled.People, Icons.Outlined.People),
     )
-    val medicineStaffItems = staffItems + listOf(
+    val supervisorItems = staffItems + listOf(
         BottomNavItem(Routes.MEDICINE, "Medicine", Icons.Filled.Medication, Icons.Outlined.Medication),
     )
     val adminItems = listOf(
-        BottomNavItem(Routes.DASHBOARD,     "Patients",  Icons.Filled.People, Icons.Outlined.People),
-        BottomNavItem(Routes.APPROVAL_QUEUE,"Approvals", Icons.Filled.Approval, Icons.Outlined.Approval),
-        BottomNavItem(Routes.AUDIT_LOG,     "Audit Log", Icons.Filled.History, Icons.Outlined.History),
-        BottomNavItem(Routes.CONFIG,        "Config",    Icons.Filled.Settings, Icons.Outlined.Settings),
-        BottomNavItem(Routes.SUMMARY,       "Summary",   Icons.Filled.BarChart, Icons.Outlined.BarChart),
+        BottomNavItem(Routes.DASHBOARD,      "Patients",  Icons.Filled.People,    Icons.Outlined.People),
+        BottomNavItem(Routes.APPROVAL_QUEUE, "Approvals", Icons.Filled.Approval,  Icons.Outlined.Approval),
+        BottomNavItem(Routes.AUDIT_LOG,      "Audit Log", Icons.Filled.History,   Icons.Outlined.History),
+        BottomNavItem(Routes.CONFIG,         "Config",    Icons.Filled.Settings,  Icons.Outlined.Settings),
+        BottomNavItem(Routes.SUMMARY,        "Summary",   Icons.Filled.BarChart,  Icons.Outlined.BarChart),
     )
     val items = when {
-        isAdmin          -> adminItems
-        isMedicineStaff  -> medicineStaffItems
-        else             -> staffItems
+        isAdmin      -> adminItems
+        isSupervisor -> supervisorItems
+        else         -> staffItems
     }
 
     NavigationBar(
@@ -53,8 +52,8 @@ fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
         items.forEach { item ->
             val selected = currentRoute == item.route
             NavigationBarItem(
-                selected  = selected,
-                onClick   = {
+                selected = selected,
+                onClick = {
                     if (currentRoute != item.route) {
                         navController.navigate(item.route) {
                             popUpTo(Routes.DASHBOARD) { saveState = true }
@@ -72,11 +71,11 @@ fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
                 },
                 label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor       = KalazaRed,
-                    selectedTextColor       = KalazaRed,
-                    indicatorColor          = MaterialTheme.colorScheme.primaryContainer,
-                    unselectedIconColor     = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor     = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selectedIconColor   = KalazaRed,
+                    selectedTextColor   = KalazaRed,
+                    indicatorColor      = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             )
         }

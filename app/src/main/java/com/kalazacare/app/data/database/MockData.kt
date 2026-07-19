@@ -5,95 +5,77 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 
-/**
- * Realistic mock data for Kalaza Care - Pune senior assisted living facility.
- * All data is fictional and used only for UI development/testing.
- * Will be replaced by Firestore data when Firebase is wired up.
- */
 object MockData {
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Staff
-    // ──────────────────────────────────────────────────────────────────────────
     val staffList = listOf(
-        Staff(id = "staff_1", name = "Priya Sharma", email = "admin@kalazacare.com",
-            role = UserRole.ADMIN, phone = "+91 98765 00001", isActive = true,
+        Staff(id = "staff_1", name = "Priya Sharma",  email = "admin@kalazacare.com",
+            role = UserRole.ADMIN,      phone = "+91 98765 00001", isActive = true,
             joinedDate = LocalDate.of(2022, 3, 1)),
-        Staff(id = "staff_2", name = "Kavita Desai", email = "kavita@kalazacare.com",
-            role = UserRole.MEDICINE_STAFF, phone = "+91 98765 00002", isActive = true,
+        Staff(id = "staff_2", name = "Kavita Desai",  email = "kavita@kalazacare.com",
+            role = UserRole.SUPERVISOR, phone = "+91 98765 00002", isActive = true,
             joinedDate = LocalDate.of(2023, 6, 15)),
-        Staff(id = "staff_3", name = "Rahul Patil", email = "rahul@kalazacare.com",
-            role = UserRole.MEDICINE_STAFF, phone = "+91 98765 00003", isActive = true,
+        Staff(id = "staff_3", name = "Rahul Patil",   email = "rahul@kalazacare.com",
+            role = UserRole.SUPERVISOR, phone = "+91 98765 00003", isActive = true,
             joinedDate = LocalDate.of(2024, 1, 10)),
-        Staff(id = "staff_4", name = "Sunita More", email = "sunita@kalazacare.com",
-            role = UserRole.STAFF, phone = "+91 98765 00004", isActive = false,
+        Staff(id = "staff_4", name = "Sunita More",   email = "sunita@kalazacare.com",
+            role = UserRole.STAFF,      phone = "+91 98765 00004", isActive = false,
             joinedDate = LocalDate.of(2023, 9, 5)),
-        Staff(id = "staff_5", name = "Anjali Rane", email = "anjali@kalazacare.com",
-            role = UserRole.STAFF, phone = "+91 98765 00005", isActive = true,
+        Staff(id = "staff_5", name = "Anjali Rane",   email = "anjali@kalazacare.com",
+            role = UserRole.STAFF,      phone = "+91 98765 00005", isActive = true,
             joinedDate = LocalDate.of(2024, 5, 20)),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Patients
-    // ──────────────────────────────────────────────────────────────────────────
     val patientList = listOf(
-        Patient(id = "p1", name = "Ramesh Kulkarni", age = 78, gender = Gender.MALE,
+        Patient(id = "p1", name = "Ramesh Kulkarni",   age = 78, gender = Gender.MALE,
             roomNo = "101", medicalHistory = "Diabetes Type 2 (since 2010), Hypertension (since 2015)",
             currentIssues = "Blood sugar fluctuations, mild knee arthritis",
             allergies = "Penicillin", emergencyContact = "Suresh Kulkarni (Son)",
             emergencyPhone = "+91 99001 00001",
             admissionDate = LocalDate.of(2024, 2, 14),
             primaryDiagnosis = "Diabetes + Hypertension"),
-
-        Patient(id = "p2", name = "Sulochana Bhide", age = 82, gender = Gender.FEMALE,
+        Patient(id = "p2", name = "Sulochana Bhide",   age = 82, gender = Gender.FEMALE,
             roomNo = "102", medicalHistory = "Osteoporosis, Mild Dementia (diagnosed 2023)",
             currentIssues = "Confusion episodes in the evening, fall risk",
             allergies = "None known", emergencyContact = "Meena Joshi (Daughter)",
             emergencyPhone = "+91 99001 00002",
             admissionDate = LocalDate.of(2023, 11, 5),
             primaryDiagnosis = "Dementia + Osteoporosis"),
-
-        Patient(id = "p3", name = "Vijay Gokhale", age = 71, gender = Gender.MALE,
+        Patient(id = "p3", name = "Vijay Gokhale",     age = 71, gender = Gender.MALE,
             roomNo = "103", medicalHistory = "Post-hip replacement surgery (March 2026), COPD",
             currentIssues = "Physiotherapy ongoing, shortness of breath on exertion",
             allergies = "Sulfa drugs", emergencyContact = "Anita Gokhale (Wife)",
             emergencyPhone = "+91 99001 00003",
             admissionDate = LocalDate.of(2026, 4, 1),
             primaryDiagnosis = "Post-surgical recovery + COPD"),
-
-        Patient(id = "p4", name = "Indu Apte", age = 75, gender = Gender.FEMALE,
+        Patient(id = "p4", name = "Indu Apte",         age = 75, gender = Gender.FEMALE,
             roomNo = "104", medicalHistory = "Parkinson's disease (Stage 2), Hypothyroidism",
             currentIssues = "Tremors, difficulty swallowing, medication schedule critical",
             allergies = "Aspirin", emergencyContact = "Deepak Apte (Husband)",
             emergencyPhone = "+91 99001 00004",
             admissionDate = LocalDate.of(2025, 7, 20),
             primaryDiagnosis = "Parkinson's Disease"),
-
-        Patient(id = "p5", name = "Shantaram Phadke", age = 88, gender = Gender.MALE,
+        Patient(id = "p5", name = "Shantaram Phadke",  age = 88, gender = Gender.MALE,
             roomNo = "201", medicalHistory = "Chronic heart failure, Atrial fibrillation",
             currentIssues = "Edema in legs, daily weight monitoring required",
             allergies = "Ibuprofen", emergencyContact = "Priya Phadke (Daughter)",
             emergencyPhone = "+91 99001 00005",
             admissionDate = LocalDate.of(2024, 8, 12),
             primaryDiagnosis = "Chronic Heart Failure"),
-
-        Patient(id = "p6", name = "Malti Deshpande", age = 69, gender = Gender.FEMALE,
+        Patient(id = "p6", name = "Malti Deshpande",   age = 69, gender = Gender.FEMALE,
             roomNo = "202", medicalHistory = "Stroke recovery (Jan 2026), Left-side weakness",
             currentIssues = "Speech therapy, occupational therapy, left arm mobility limited",
             allergies = "None", emergencyContact = "Arun Deshpande (Son)",
             emergencyPhone = "+91 99001 00006",
             admissionDate = LocalDate.of(2026, 2, 1),
             primaryDiagnosis = "Post-Stroke Recovery"),
-
-        Patient(id = "p7", name = "Ganpat Joshi", age = 80, gender = Gender.MALE,
+        Patient(id = "p7", name = "Ganpat Joshi",      age = 80, gender = Gender.MALE,
             roomNo = "203", medicalHistory = "Prostate cancer (palliative stage), Chronic pain",
             currentIssues = "Pain management, palliative care, comfort focused",
             allergies = "Codeine", emergencyContact = "Mangal Joshi (Son)",
             emergencyPhone = "+91 99001 00007",
             admissionDate = LocalDate.of(2025, 12, 3),
             primaryDiagnosis = "Palliative – Prostate Cancer"),
-
-        Patient(id = "p8", name = "Usha Naik", age = 73, gender = Gender.FEMALE,
+        Patient(id = "p8", name = "Usha Naik",         age = 73, gender = Gender.FEMALE,
             roomNo = "204", medicalHistory = "Type 1 Diabetes, Retinopathy",
             currentIssues = "Insulin-dependent, vision impairment, requires assistance with meals",
             allergies = "Latex", emergencyContact = "Rohit Naik (Son)",
@@ -102,45 +84,37 @@ object MockData {
             primaryDiagnosis = "Insulin-Dependent Diabetes"),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Vitals (last few days, every patient)
-    // ──────────────────────────────────────────────────────────────────────────
     val vitalRecords = listOf(
-        // p1 — Ramesh Kulkarni
-        VitalRecord(id = "v1", patientId = "p1", date = LocalDate.now().minusDays(6),
+        VitalRecord(id = "v1",  patientId = "p1", date = LocalDate.now().minusDays(6),
             time = LocalTime.of(8, 30), pulse = "76", bp = "138/88", spo2 = "97",
             temperature = "98.4", sugarFasting = "142", sugarPP = "210", signedBy = "Kavita Desai"),
-        VitalRecord(id = "v2", patientId = "p1", date = LocalDate.now().minusDays(5),
+        VitalRecord(id = "v2",  patientId = "p1", date = LocalDate.now().minusDays(5),
             time = LocalTime.of(8, 15), pulse = "78", bp = "135/85", spo2 = "98",
             temperature = "98.6", sugarFasting = "138", sugarPP = "198", signedBy = "Kavita Desai"),
-        VitalRecord(id = "v3", patientId = "p1", date = LocalDate.now().minusDays(4),
+        VitalRecord(id = "v3",  patientId = "p1", date = LocalDate.now().minusDays(4),
             time = LocalTime.of(8, 45), pulse = "74", bp = "140/90", spo2 = "96",
             temperature = "99.1", sugarFasting = "155", sugarPP = "230", signedBy = "Rahul Patil"),
-        VitalRecord(id = "v4", patientId = "p1", date = LocalDate.now().minusDays(3),
-            time = LocalTime.of(9, 0), pulse = "80", bp = "132/84", spo2 = "97",
+        VitalRecord(id = "v4",  patientId = "p1", date = LocalDate.now().minusDays(3),
+            time = LocalTime.of(9, 0),  pulse = "80", bp = "132/84", spo2 = "97",
             temperature = "98.2", sugarFasting = "130", sugarPP = "185", signedBy = "Kavita Desai"),
-        VitalRecord(id = "v5", patientId = "p1", date = LocalDate.now().minusDays(2),
+        VitalRecord(id = "v5",  patientId = "p1", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(8, 30), pulse = "77", bp = "136/88", spo2 = "98",
             temperature = "98.6", sugarFasting = "128", sugarPP = "192", signedBy = "Rahul Patil"),
-        VitalRecord(id = "v6", patientId = "p1", date = LocalDate.now().minusDays(1),
+        VitalRecord(id = "v6",  patientId = "p1", date = LocalDate.now().minusDays(1),
             time = LocalTime.of(8, 20), pulse = "75", bp = "134/86", spo2 = "97",
             temperature = "98.5", sugarFasting = "135", sugarPP = "200", signedBy = "Kavita Desai"),
-        VitalRecord(id = "v7", patientId = "p1", date = LocalDate.now(),
+        VitalRecord(id = "v7",  patientId = "p1", date = LocalDate.now(),
             time = LocalTime.of(8, 10), pulse = "79", bp = "139/89", spo2 = "97",
-            temperature = "98.7", sugarFasting = "145", sugarPP = "", signedBy = "Kavita Desai"),
-
-        // p2 — Sulochana Bhide
-        VitalRecord(id = "v8", patientId = "p2", date = LocalDate.now().minusDays(2),
-            time = LocalTime.of(8, 0), pulse = "74", bp = "128/82", spo2 = "97",
+            temperature = "98.7", sugarFasting = "145", sugarPP = "",   signedBy = "Kavita Desai"),
+        VitalRecord(id = "v8",  patientId = "p2", date = LocalDate.now().minusDays(2),
+            time = LocalTime.of(8, 0),  pulse = "74", bp = "128/82", spo2 = "97",
             temperature = "98.5", signedBy = "Kavita Desai"),
-        VitalRecord(id = "v9", patientId = "p2", date = LocalDate.now().minusDays(1),
-            time = LocalTime.of(8, 5), pulse = "72", bp = "130/84", spo2 = "96",
+        VitalRecord(id = "v9",  patientId = "p2", date = LocalDate.now().minusDays(1),
+            time = LocalTime.of(8, 5),  pulse = "72", bp = "130/84", spo2 = "96",
             temperature = "98.6", signedBy = "Rahul Patil"),
         VitalRecord(id = "v10", patientId = "p2", date = LocalDate.now(),
-            time = LocalTime.of(8, 0), pulse = "75", bp = "132/85", spo2 = "97",
+            time = LocalTime.of(8, 0),  pulse = "75", bp = "132/85", spo2 = "97",
             temperature = "98.7", signedBy = "Kavita Desai"),
-
-        // p3 — Vijay Gokhale
         VitalRecord(id = "v11", patientId = "p3", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(8, 15), pulse = "88", bp = "118/76", spo2 = "93",
             temperature = "99.0", signedBy = "Rahul Patil"),
@@ -150,8 +124,6 @@ object MockData {
         VitalRecord(id = "v13", patientId = "p3", date = LocalDate.now(),
             time = LocalTime.of(8, 10), pulse = "84", bp = "122/78", spo2 = "95",
             temperature = "98.6", signedBy = "Rahul Patil"),
-
-        // p4 — Indu Apte
         VitalRecord(id = "v14", patientId = "p4", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(7, 45), pulse = "80", bp = "126/80", spo2 = "97",
             temperature = "98.4", signedBy = "Kavita Desai"),
@@ -161,19 +133,15 @@ object MockData {
         VitalRecord(id = "v16", patientId = "p4", date = LocalDate.now(),
             time = LocalTime.of(7, 45), pulse = "79", bp = "125/79", spo2 = "98",
             temperature = "98.6", signedBy = "Kavita Desai"),
-
-        // p5 — Shantaram Phadke
         VitalRecord(id = "v17", patientId = "p5", date = LocalDate.now().minusDays(2),
-            time = LocalTime.of(8, 0), pulse = "92", bp = "142/88", spo2 = "94",
+            time = LocalTime.of(8, 0),  pulse = "92", bp = "142/88", spo2 = "94",
             temperature = "98.7", signedBy = "Rahul Patil"),
         VitalRecord(id = "v18", patientId = "p5", date = LocalDate.now().minusDays(1),
-            time = LocalTime.of(8, 5), pulse = "90", bp = "138/86", spo2 = "95",
+            time = LocalTime.of(8, 5),  pulse = "90", bp = "138/86", spo2 = "95",
             temperature = "98.6", signedBy = "Kavita Desai"),
         VitalRecord(id = "v19", patientId = "p5", date = LocalDate.now(),
-            time = LocalTime.of(8, 0), pulse = "88", bp = "136/85", spo2 = "95",
+            time = LocalTime.of(8, 0),  pulse = "88", bp = "136/85", spo2 = "95",
             temperature = "98.5", signedBy = "Rahul Patil"),
-
-        // p6 — Malti Deshpande
         VitalRecord(id = "v20", patientId = "p6", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(8, 30), pulse = "76", bp = "130/82", spo2 = "96",
             temperature = "98.6", signedBy = "Kavita Desai"),
@@ -183,8 +151,6 @@ object MockData {
         VitalRecord(id = "v22", patientId = "p6", date = LocalDate.now(),
             time = LocalTime.of(8, 20), pulse = "74", bp = "126/79", spo2 = "97",
             temperature = "98.6", signedBy = "Kavita Desai"),
-
-        // p7 — Ganpat Joshi
         VitalRecord(id = "v23", patientId = "p7", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(7, 30), pulse = "82", bp = "110/70", spo2 = "95",
             temperature = "99.2", signedBy = "Rahul Patil"),
@@ -194,8 +160,6 @@ object MockData {
         VitalRecord(id = "v25", patientId = "p7", date = LocalDate.now(),
             time = LocalTime.of(7, 30), pulse = "81", bp = "111/71", spo2 = "96",
             temperature = "98.9", signedBy = "Rahul Patil"),
-
-        // p8 — Usha Naik
         VitalRecord(id = "v26", patientId = "p8", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(7, 15), pulse = "78", bp = "122/78", spo2 = "97",
             temperature = "98.5", sugarFasting = "130", sugarPP = "190", signedBy = "Kavita Desai"),
@@ -207,31 +171,19 @@ object MockData {
             temperature = "98.6", sugarFasting = "128", sugarPP = "185", signedBy = "Kavita Desai"),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Medications (today, every patient — mix of statuses for a realistic demo)
-    // ──────────────────────────────────────────────────────────────────────────
     val medicationEntries = listOf(
-        // p1 — Ramesh Kulkarni
         MedicationEntry(id = "m1", patientId = "p1", medicineName = "Metformin",
             dose = "500mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
             administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(2),
             allotmentStatus = AllotmentStatus.ALLOTTED, allottedById = "staff_2", allottedByName = "Kavita Desai",
-            allottedAt = LocalDateTime.now().minusHours(2).minusMinutes(15),
-            allotmentPhotoUrl = "mock://evidence/seed_m1_allot.jpg",
-            allotmentPhotoExpiresAt = LocalDateTime.now().plusHours(46),
-            administeredPhotoUrl = "mock://evidence/seed_m1_admin.jpg",
-            administeredPhotoExpiresAt = LocalDateTime.now().plusHours(46)),
+            allottedAt = LocalDateTime.now().minusHours(2).minusMinutes(15)),
         MedicationEntry(id = "m2", patientId = "p1", medicineName = "Amlodipine",
             dose = "5mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
             administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(2),
             allotmentStatus = AllotmentStatus.ALLOTTED, allottedById = "staff_2", allottedByName = "Kavita Desai",
-            allottedAt = LocalDateTime.now().minusHours(2).minusMinutes(15),
-            allotmentPhotoUrl = "mock://evidence/seed_m2_allot.jpg",
-            allotmentPhotoExpiresAt = LocalDateTime.now().plusHours(46),
-            administeredPhotoUrl = "mock://evidence/seed_m2_admin.jpg",
-            administeredPhotoExpiresAt = LocalDateTime.now().plusHours(46)),
+            allottedAt = LocalDateTime.now().minusHours(2).minusMinutes(15)),
         MedicationEntry(id = "m3", patientId = "p1", medicineName = "Aspirin",
             dose = "75mg", quantity = "1 tablet", scheduleTime = LocalTime.of(13, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING),
@@ -243,13 +195,7 @@ object MockData {
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
             administeredBy = "Kavita Desai", administeredAt = LocalDateTime.now().minusHours(1),
             allotmentStatus = AllotmentStatus.ALLOTTED, allottedById = "staff_2", allottedByName = "Kavita Desai",
-            allottedAt = LocalDateTime.now().minusHours(1).minusMinutes(10),
-            allotmentPhotoUrl = "mock://evidence/seed_m5_allot.jpg",
-            allotmentPhotoExpiresAt = LocalDateTime.now().plusHours(47),
-            administeredPhotoUrl = "mock://evidence/seed_m5_admin.jpg",
-            administeredPhotoExpiresAt = LocalDateTime.now().plusHours(47)),
-
-        // p2 — Sulochana Bhide
+            allottedAt = LocalDateTime.now().minusHours(1).minusMinutes(10)),
         MedicationEntry(id = "m6", patientId = "p2", medicineName = "Calcium + Vitamin D3",
             dose = "500mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -266,8 +212,6 @@ object MockData {
             dose = "0.5mg", quantity = "1 tablet", scheduleTime = LocalTime.of(20, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING,
             notes = "Only if evening confusion/agitation worsens"),
-
-        // p3 — Vijay Gokhale
         MedicationEntry(id = "m9", patientId = "p3", medicineName = "Tiotropium Inhaler",
             dose = "1 puff", quantity = "1 dose", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -284,8 +228,6 @@ object MockData {
             dose = "10mg", quantity = "1 tablet", scheduleTime = LocalTime.of(13, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING,
             notes = "Taper dose per surgeon's post-op plan"),
-
-        // p4 — Indu Apte (critical schedule, deliberately not yet allotted for demo)
         MedicationEntry(id = "m12", patientId = "p4", medicineName = "Levodopa/Carbidopa",
             dose = "100/25mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -299,8 +241,6 @@ object MockData {
         MedicationEntry(id = "m14", patientId = "p4", medicineName = "Levodopa/Carbidopa",
             dose = "100/25mg", quantity = "1 tablet", scheduleTime = LocalTime.of(16, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING),
-
-        // p5 — Shantaram Phadke
         MedicationEntry(id = "m15", patientId = "p5", medicineName = "Furosemide",
             dose = "40mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -316,8 +256,6 @@ object MockData {
         MedicationEntry(id = "m17", patientId = "p5", medicineName = "Metoprolol",
             dose = "25mg", quantity = "1 tablet", scheduleTime = LocalTime.of(20, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING),
-
-        // p6 — Malti Deshpande
         MedicationEntry(id = "m18", patientId = "p6", medicineName = "Aspirin",
             dose = "75mg", quantity = "1 tablet", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -327,8 +265,6 @@ object MockData {
         MedicationEntry(id = "m19", patientId = "p6", medicineName = "Atorvastatin",
             dose = "20mg", quantity = "1 tablet", scheduleTime = LocalTime.of(21, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING),
-
-        // p7 — Ganpat Joshi (palliative — one dose allotted but not yet given, for demo)
         MedicationEntry(id = "m20", patientId = "p7", medicineName = "Morphine",
             dose = "5mg", quantity = "1 dose", scheduleTime = LocalTime.of(6, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -343,8 +279,6 @@ object MockData {
         MedicationEntry(id = "m22", patientId = "p7", medicineName = "Lactulose",
             dose = "15ml", quantity = "1 sachet", scheduleTime = LocalTime.of(20, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.PENDING),
-
-        // p8 — Usha Naik
         MedicationEntry(id = "m23", patientId = "p8", medicineName = "Insulin Glargine",
             dose = "20 units", quantity = "1 injection", scheduleTime = LocalTime.of(8, 0),
             scheduledDate = LocalDate.now(), status = MedStatus.ADMINISTERED,
@@ -361,9 +295,6 @@ object MockData {
             notes = "Give just before dinner"),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Utility Records — quantities keyed by UtilityItem id (ui1..ui6 below)
-    // ──────────────────────────────────────────────────────────────────────────
     val utilityRecords = listOf(
         UtilityRecord(id = "u1", patientId = "p1", date = LocalDate.now().minusDays(2),
             time = LocalTime.of(7, 0),
@@ -380,129 +311,71 @@ object MockData {
             quantities = mapOf("ui1" to 2, "ui2" to 2, "ui3" to 1, "ui4" to 4, "ui5" to 1, "ui6" to 10),
             issuedToCaregiver = "Rahul Patil", issuedBySupervisor = "Kavita Desai",
             checkedBy = ""),
-        UtilityRecord(id = "u4", patientId = "p2", date = LocalDate.now().minusDays(1),
-            time = LocalTime.of(7, 30),
-            quantities = mapOf("ui1" to 1, "ui2" to 4, "ui4" to 3, "ui6" to 12),
-            issuedToCaregiver = "Anjali Rane", issuedBySupervisor = "Kavita Desai",
-            checkedBy = "Priya Sharma"),
-        UtilityRecord(id = "u5", patientId = "p3", date = LocalDate.now(),
-            time = LocalTime.of(7, 30),
-            quantities = mapOf("ui1" to 2, "ui4" to 2, "ui6" to 6),
-            issuedToCaregiver = "Rahul Patil", issuedBySupervisor = "Kavita Desai",
-            checkedBy = ""),
-        UtilityRecord(id = "u6", patientId = "p5", date = LocalDate.now(),
-            time = LocalTime.of(7, 45),
-            quantities = mapOf("ui1" to 1, "ui2" to 2, "ui4" to 2, "ui6" to 8),
-            issuedToCaregiver = "Rahul Patil", issuedBySupervisor = "Kavita Desai",
-            checkedBy = "Priya Sharma"),
-        UtilityRecord(id = "u7", patientId = "p6", date = LocalDate.now(),
-            time = LocalTime.of(8, 0),
-            quantities = mapOf("ui1" to 1, "ui4" to 2, "ui6" to 5),
-            issuedToCaregiver = "Anjali Rane", issuedBySupervisor = "Kavita Desai",
-            checkedBy = ""),
-        UtilityRecord(id = "u8", patientId = "p8", date = LocalDate.now(),
-            time = LocalTime.of(7, 20),
-            quantities = mapOf("ui1" to 1, "ui4" to 3, "ui6" to 6),
-            issuedToCaregiver = "Anjali Rane", issuedBySupervisor = "Kavita Desai",
-            checkedBy = "Priya Sharma"),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Doctor Visits
-    // ──────────────────────────────────────────────────────────────────────────
     val doctorVisits = listOf(
         DoctorVisit(id = "dv1", patientId = "p1", doctorName = "Dr. Suresh Mehta",
             specialty = "Endocrinologist", date = LocalDate.now().minusDays(14),
             notes = "HbA1c improved to 7.2. Continue current Metformin dose. Review in 3 months.",
             nextVisitDate = LocalDate.now().plusDays(76),
-            prescriptionChanges = "No changes"),
+            prescriptionChanges = "No changes", isConfirmed = true, isArchived = true),
         DoctorVisit(id = "dv2", patientId = "p1", doctorName = "Dr. Anita Joshi",
-            specialty = "Cardiologist", date = LocalDate.now().minusDays(30),
-            notes = "BP slightly elevated. Increased Amlodipine to 5mg. Monitor daily.",
-            nextVisitDate = LocalDate.now().plusDays(30),
-            prescriptionChanges = "Amlodipine: 2.5mg → 5mg"),
+            specialty = "Cardiologist", date = LocalDate.now().plusDays(30),
+            notes = "",
+            nextVisitDate = null,
+            prescriptionChanges = "", isConfirmed = false, isArchived = false),
         DoctorVisit(id = "dv3", patientId = "p2", doctorName = "Dr. Meera Kulkarni",
             specialty = "Geriatrician", date = LocalDate.now().minusDays(10),
-            notes = "Dementia progressing slowly. Recommend structured evening routine to reduce sundowning.",
+            notes = "Dementia progressing slowly. Recommend structured evening routine.",
             nextVisitDate = LocalDate.now().plusDays(50),
-            prescriptionChanges = "Started Donepezil 5mg"),
+            prescriptionChanges = "Started Donepezil 5mg", isConfirmed = true, isArchived = true),
         DoctorVisit(id = "dv4", patientId = "p3", doctorName = "Dr. Rajesh Nair",
-            specialty = "Orthopedic Surgeon", date = LocalDate.now().minusDays(7),
-            notes = "Hip replacement healing well. Continue physiotherapy 3x/week.",
-            nextVisitDate = LocalDate.now().plusDays(21),
-            prescriptionChanges = "No changes"),
+            specialty = "Orthopedic Surgeon", date = LocalDate.now().plusDays(21),
+            notes = "",
+            nextVisitDate = null,
+            prescriptionChanges = "", isConfirmed = false, isArchived = false),
         DoctorVisit(id = "dv5", patientId = "p4", doctorName = "Dr. Anita Joshi",
-            specialty = "Neurologist", date = LocalDate.now().minusDays(20),
-            notes = "Tremors stable on current Levodopa/Carbidopa schedule. Swallowing difficulty needs monitoring.",
-            nextVisitDate = LocalDate.now().plusDays(40),
-            prescriptionChanges = "No changes"),
+            specialty = "Neurologist", date = LocalDate.now().plusDays(40),
+            notes = "",
+            nextVisitDate = null,
+            prescriptionChanges = "", isConfirmed = false, isArchived = false),
         DoctorVisit(id = "dv6", patientId = "p5", doctorName = "Dr. Anita Joshi",
-            specialty = "Cardiologist", date = LocalDate.now().minusDays(5),
-            notes = "Leg edema improved with Furosemide. Continue daily weight monitoring.",
-            nextVisitDate = LocalDate.now().plusDays(25),
-            prescriptionChanges = "No changes"),
+            specialty = "Cardiologist", date = LocalDate.now().plusDays(25),
+            notes = "",
+            nextVisitDate = null,
+            prescriptionChanges = "", isConfirmed = false, isArchived = false),
         DoctorVisit(id = "dv7", patientId = "p6", doctorName = "Dr. Rajesh Nair",
             specialty = "Physiotherapist", date = LocalDate.now().minusDays(3),
-            notes = "Left arm mobility improving. Continue speech and occupational therapy sessions.",
+            notes = "Left arm mobility improving. Continue speech and occupational therapy.",
             nextVisitDate = LocalDate.now().plusDays(14),
-            prescriptionChanges = "No changes"),
+            prescriptionChanges = "No changes", isConfirmed = true, isArchived = true),
         DoctorVisit(id = "dv8", patientId = "p7", doctorName = "Dr. Suresh Mehta",
-            specialty = "Palliative Care Specialist", date = LocalDate.now().minusDays(2),
-            notes = "Pain well controlled on current Morphine dose. Family updated on comfort-care plan.",
-            nextVisitDate = LocalDate.now().plusDays(7),
-            prescriptionChanges = "No changes"),
+            specialty = "Palliative Care", date = LocalDate.now().plusDays(7),
+            notes = "",
+            nextVisitDate = null,
+            prescriptionChanges = "", isConfirmed = false, isArchived = false),
         DoctorVisit(id = "dv9", patientId = "p8", doctorName = "Dr. Suresh Mehta",
-            specialty = "Endocrinologist", date = LocalDate.now().minusDays(12),
-            notes = "Blood sugar well controlled on current insulin regimen. Retinopathy follow-up scheduled.",
-            nextVisitDate = LocalDate.now().plusDays(18),
-            prescriptionChanges = "No changes"),
+            specialty = "Endocrinologist", date = LocalDate.now().plusDays(18),
+            notes = "",
+            nextVisitDate = null,
+            prescriptionChanges = "", isConfirmed = false, isArchived = false),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Care Notes
-    // ──────────────────────────────────────────────────────────────────────────
     val careNotes = listOf(
         CareNote(id = "cn1", patientId = "p1", staffId = "staff_2",
             staffName = "Kavita Desai",
             timestamp = LocalDateTime.now().minusHours(3),
-            note = "Patient had a good morning. Ate full breakfast. Mood was cheerful. Complained of slight knee pain around 10 AM — applied cold pack as advised."),
+            note = "Patient had a good morning. Ate full breakfast. Complained of slight knee pain — applied cold pack."),
         CareNote(id = "cn2", patientId = "p1", staffId = "staff_3",
             staffName = "Rahul Patil",
             timestamp = LocalDateTime.now().minusDays(1).minusHours(5),
-            note = "Evening restlessness noted. Patient had difficulty sleeping. Given warm milk. Slept by 10:30 PM."),
+            note = "Evening restlessness noted. Given warm milk. Slept by 10:30 PM."),
         CareNote(id = "cn3", patientId = "p2", staffId = "staff_5",
             staffName = "Anjali Rane",
             timestamp = LocalDateTime.now().minusHours(6),
-            note = "Mild confusion around 6 PM, asked for her late husband. Redirected gently with familiar photos. Settled within 20 minutes."),
-        CareNote(id = "cn4", patientId = "p3", staffId = "staff_3",
-            staffName = "Rahul Patil",
-            timestamp = LocalDateTime.now().minusHours(4),
-            note = "Completed physiotherapy session. Managed 15 minutes on the walker with standby assistance. Mild breathlessness after, resolved with rest."),
-        CareNote(id = "cn5", patientId = "p4", staffId = "staff_2",
-            staffName = "Kavita Desai",
-            timestamp = LocalDateTime.now().minusHours(5),
-            note = "Some difficulty swallowing morning medication — crushed tablet in soft food per care plan. Tremors more noticeable before the 8 AM dose."),
-        CareNote(id = "cn6", patientId = "p5", staffId = "staff_3",
-            staffName = "Rahul Patil",
-            timestamp = LocalDateTime.now().minusHours(7),
-            note = "Daily weight check: 68.2kg (down 0.3kg from yesterday). Mild leg swelling persists, elevated legs during rest period."),
-        CareNote(id = "cn7", patientId = "p6", staffId = "staff_5",
-            staffName = "Anjali Rane",
-            timestamp = LocalDateTime.now().minusHours(3),
-            note = "Attempted a few words during speech therapy exercise, clearer than last week. Left hand grip strength slightly improved."),
-        CareNote(id = "cn8", patientId = "p7", staffId = "staff_3",
-            staffName = "Rahul Patil",
-            timestamp = LocalDateTime.now().minusHours(2),
-            note = "Comfortable overnight, pain reported as 2/10 this morning. Family visited, spirits were good."),
-        CareNote(id = "cn9", patientId = "p8", staffId = "staff_5",
-            staffName = "Anjali Rane",
-            timestamp = LocalDateTime.now().minusHours(4),
-            note = "Assisted with breakfast due to vision impairment. Blood sugar checked before insulin dose, within target range."),
+            note = "Mild confusion around 6 PM. Redirected gently with familiar photos. Settled within 20 minutes."),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Approval Requests
-    // ──────────────────────────────────────────────────────────────────────────
     val approvalRequests = listOf(
         ApprovalRequest(id = "ar1", patientId = "p2", patientName = "Sulochana Bhide",
             requestedById = "staff_2", requestedByName = "Kavita Desai",
@@ -527,21 +400,8 @@ object MockData {
             reviewedByName = "Priya Sharma",
             timestamp = LocalDateTime.now().minusDays(1),
             reviewedAt = LocalDateTime.now().minusHours(18)),
-        ApprovalRequest(id = "ar4", patientId = "p5", patientName = "Shantaram Phadke",
-            requestedById = "staff_3", requestedByName = "Rahul Patil",
-            fieldChanged = "Medical History",
-            oldValue = "Chronic heart failure, Atrial fibrillation",
-            newValue = "Chronic heart failure, Atrial fibrillation, Recent hospitalization May 2026",
-            status = ApprovalStatus.REJECTED,
-            reviewedByName = "Priya Sharma",
-            rejectionReason = "Incomplete information — please include discharge summary reference.",
-            timestamp = LocalDateTime.now().minusDays(2),
-            reviewedAt = LocalDateTime.now().minusDays(2).plusHours(3)),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Audit Log
-    // ──────────────────────────────────────────────────────────────────────────
     val auditLog = listOf(
         AuditLogEntry(id = "al1", action = "Medication Administered",
             performedByName = "Kavita Desai", targetPatientName = "Ramesh Kulkarni",
@@ -553,48 +413,30 @@ object MockData {
             timestamp = LocalDateTime.now().minusHours(2).minusMinutes(10), iconName = "monitor_heart"),
         AuditLogEntry(id = "al3", action = "Edit Request Approved",
             performedByName = "Priya Sharma", targetPatientName = "Ramesh Kulkarni",
-            details = "Approved change to Emergency Phone number by Kavita Desai",
+            details = "Approved change to Emergency Phone by Kavita Desai",
             timestamp = LocalDateTime.now().minusHours(18), iconName = "check_circle"),
-        AuditLogEntry(id = "al4", action = "Care Note Added",
-            performedByName = "Rahul Patil", targetPatientName = "Sulochana Bhide",
-            details = "Evening care note added — patient had restless night",
-            timestamp = LocalDateTime.now().minusDays(1).minusHours(5), iconName = "note_add"),
-        AuditLogEntry(id = "al5", action = "Edit Request Rejected",
-            performedByName = "Priya Sharma", targetPatientName = "Shantaram Phadke",
-            details = "Rejected medical history edit request — incomplete information",
-            timestamp = LocalDateTime.now().minusDays(2).plusHours(3), iconName = "cancel"),
-        AuditLogEntry(id = "al6", action = "Patient Added",
-            performedByName = "Priya Sharma", targetPatientName = "Malti Deshpande",
-            details = "New patient admitted — Room 202",
-            timestamp = LocalDateTime.now().minusDays(10), iconName = "person_add"),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Allotment Requests (regular staff flagging a forgotten allotment)
-    // ──────────────────────────────────────────────────────────────────────────
+    // FIXED: AllotmentRequest now carries dose field
     val allotmentRequests = listOf(
-        AllotmentRequest(id = "arq1", medicationEntryId = "m3", patientId = "p1", patientName = "Ramesh Kulkarni",
-            medicineName = "Aspirin", scheduledTime = LocalTime.of(13, 0),
+        AllotmentRequest(id = "arq1", medicationEntryId = "m3", patientId = "p1",
+            patientName = "Ramesh Kulkarni",
+            medicineName = "Aspirin", dose = "75mg",
+            scheduledTime = LocalTime.of(13, 0),
             requestedById = "staff_5", requestedByName = "Anjali Rane",
             status = AllotmentRequestStatus.PENDING,
             timestamp = LocalDateTime.now().minusMinutes(20)),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Utility Items (configurable)
-    // ──────────────────────────────────────────────────────────────────────────
     val utilityItems = listOf(
-        UtilityItem(id = "ui1", name = "Face Mask",        unit = "pcs", displayOrder = 1),
-        UtilityItem(id = "ui2", name = "Diaper (Pant)",    unit = "pcs", displayOrder = 2),
-        UtilityItem(id = "ui3", name = "Diaper (Stitch)",  unit = "pcs", displayOrder = 3),
-        UtilityItem(id = "ui4", name = "Hand Gloves",      unit = "pairs", displayOrder = 4),
-        UtilityItem(id = "ui5", name = "Tina Bed",         unit = "pcs", displayOrder = 5),
-        UtilityItem(id = "ui6", name = "Wet Wipes",        unit = "pcs", displayOrder = 6),
+        UtilityItem(id = "ui1", name = "Face Mask",       unit = "pcs",   displayOrder = 1),
+        UtilityItem(id = "ui2", name = "Diaper (Pant)",   unit = "pcs",   displayOrder = 2),
+        UtilityItem(id = "ui3", name = "Diaper (Stitch)", unit = "pcs",   displayOrder = 3),
+        UtilityItem(id = "ui4", name = "Hand Gloves",     unit = "pairs", displayOrder = 4),
+        UtilityItem(id = "ui5", name = "Tina Bed",        unit = "pcs",   displayOrder = 5),
+        UtilityItem(id = "ui6", name = "Wet Wipes",       unit = "pcs",   displayOrder = 6),
     )
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Notifications (seed examples; the app generates real ones as events happen)
-    // ──────────────────────────────────────────────────────────────────────────
     val notifications = listOf(
         AppNotification(id = "n1", recipientRole = UserRole.ADMIN,
             type = NotificationType.APPROVAL_REQUESTED,
@@ -608,18 +450,11 @@ object MockData {
             message = "Rahul Patil requested a change to Vijay Gokhale's Allergies",
             timestamp = LocalDateTime.now().minusHours(5),
             targetRoute = "approval"),
-        AppNotification(id = "n3", recipientRole = UserRole.MEDICINE_STAFF,
+        AppNotification(id = "n3", recipientRole = UserRole.SUPERVISOR,
             type = NotificationType.ALLOTMENT_REQUESTED,
             title = "Allotment Needed",
             message = "Anjali Rane flagged Aspirin for Ramesh Kulkarni as not yet allotted",
             timestamp = LocalDateTime.now().minusMinutes(20),
             targetRoute = "medicine"),
-        AppNotification(id = "n4", recipientStaffId = "staff_2",
-            type = NotificationType.APPROVAL_APPROVED,
-            title = "Edit Request Approved",
-            message = "Your Emergency Phone change for Ramesh Kulkarni was approved",
-            timestamp = LocalDateTime.now().minusHours(18),
-            isRead = true,
-            targetRoute = "patient/p1"),
     )
 }

@@ -60,6 +60,8 @@ fun LoginScreen(
             verticalArrangement = Arrangement.Center
         ) {
             // Logo area
+            // CHANGE 10: Replace ic_launcher_foreground with your actual Kalaza Care logo drawable
+            // e.g. painterResource(id = R.drawable.ic_kalaza_logo) once the asset is added
             Image(
                 painter = painterResource(id = R.drawable.ic_launcher_foreground),
                 contentDescription = "Kalaza Care Logo",

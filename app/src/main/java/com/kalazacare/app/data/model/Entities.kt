@@ -8,12 +8,13 @@ import java.time.LocalTime
 // Enumerations
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum class UserRole { ADMIN, STAFF, MEDICINE_STAFF }
+// CHANGE 8: MEDICINE_STAFF → SUPERVISOR
+enum class UserRole { ADMIN, STAFF, SUPERVISOR }
 
 fun UserRole.displayLabel(): String = when (this) {
-    UserRole.ADMIN          -> "Admin"
-    UserRole.STAFF          -> "Regular Staff"
-    UserRole.MEDICINE_STAFF -> "Medicine Staff"
+    UserRole.ADMIN      -> "Admin"
+    UserRole.STAFF      -> "Regular Staff"
+    UserRole.SUPERVISOR -> "Supervisor"
 }
 
 enum class Gender { MALE, FEMALE, OTHER }
@@ -26,6 +27,7 @@ enum class AllotmentStatus { NOT_ALLOTTED, ALLOTTED }
 
 enum class AllotmentRequestStatus { PENDING, FULFILLED }
 
+// CHANGE 4: visits get an isConfirmed + isArchived flag
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Entities
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,7 +70,7 @@ data class VitalRecord(
     val pulse: String = "",          // bpm
     val bp: String = "",             // e.g. "120/80"
     val spo2: String = "",           // %
-    val temperature: String = "",    // °F
+    val temperature: String = "",    // °F  (CHANGE 6: always Fahrenheit)
     val sugarFasting: String = "",   // mg/dL
     val sugarPP: String = "",        // mg/dL
     val signedBy: String = "",       // Staff name
@@ -78,37 +80,31 @@ data class MedicationEntry(
     val id: String = "",
     val patientId: String = "",
     val medicineName: String = "",
-    val dose: String = "",           // e.g. "500mg"
-    val quantity: String = "",       // e.g. "1 tablet"
+    val dose: String = "",
+    val quantity: String = "",
     val scheduleTime: LocalTime = LocalTime.now(),
     val scheduledDate: LocalDate = LocalDate.now(),
     val status: MedStatus = MedStatus.PENDING,
     val administeredBy: String = "",
     val administeredAt: LocalDateTime? = null,
     val notes: String = "",
-    // ── Medicine-staff allotment checkpoint (prepared for handoff to whoever administers) ──
     val allotmentStatus: AllotmentStatus = AllotmentStatus.NOT_ALLOTTED,
     val allottedById: String = "",
     val allottedByName: String = "",
     val allottedAt: LocalDateTime? = null,
     val allotmentPhotoUrl: String = "",
     val allotmentPhotoExpiresAt: LocalDateTime? = null,
-    // ── Administration checkpoint photo (proof medicine was actually given) ──
     val administeredPhotoUrl: String = "",
     val administeredPhotoExpiresAt: LocalDateTime? = null,
 )
 
-/**
- * Raised by regular staff when the assigned medicine-staff member forgot
- * to allot a dose ahead of its scheduled time. Stands in for a push
- * notification to medicine-staff until FCM is wired.
- */
 data class AllotmentRequest(
     val id: String = "",
     val medicationEntryId: String = "",
     val patientId: String = "",
     val patientName: String = "",
     val medicineName: String = "",
+    val dose: String = "",           // added so card can show dose
     val scheduledTime: LocalTime = LocalTime.now(),
     val requestedById: String = "",
     val requestedByName: String = "",
@@ -119,11 +115,6 @@ data class AllotmentRequest(
     val fulfilledAt: LocalDateTime? = null,
 )
 
-/**
- * [quantities] maps a [UtilityItem.id] to the quantity issued in this record,
- * so the columns actually reflect whatever items Admin has configured in
- * Config → Utility Items, instead of a fixed hardcoded set.
- */
 data class UtilityRecord(
     val id: String = "",
     val patientId: String = "",
@@ -135,15 +126,18 @@ data class UtilityRecord(
     val checkedBy: String = "",
 )
 
+// CHANGE 4: DoctorVisit gets isConfirmed + isArchived + editable plannedDate
 data class DoctorVisit(
     val id: String = "",
     val patientId: String = "",
     val doctorName: String = "",
     val specialty: String = "",
-    val date: LocalDate = LocalDate.now(),
+    val date: LocalDate = LocalDate.now(),          // actual/planned visit date
     val notes: String = "",
     val nextVisitDate: LocalDate? = null,
     val prescriptionChanges: String = "",
+    val isConfirmed: Boolean = false,               // confirmed = visit actually happened
+    val isArchived: Boolean = false,                // auto-archived once confirmed & date passed
 )
 
 data class CareNote(
@@ -185,7 +179,7 @@ data class AuditLogEntry(
     val targetPatientName: String = "",
     val details: String = "",
     val timestamp: LocalDateTime = LocalDateTime.now(),
-    val iconName: String = "edit",   // Material icon name for display
+    val iconName: String = "edit",
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -201,7 +195,7 @@ data class UtilityItem(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Notifications (in-app; stands in for FCM push until a real backend exists)
+// Notifications
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum class NotificationType {
@@ -209,12 +203,6 @@ enum class NotificationType {
     ALLOTMENT_REQUESTED, ALLOTMENT_FULFILLED,
 }
 
-/**
- * Targeted at either a specific staff member ([recipientStaffId]) or broadcast
- * to a whole role ([recipientRole]) — exactly one should be set. [targetRoute]
- * is a [com.kalazacare.app.ui.navigation.Routes] value (or "patient/{id}") to
- * jump to when tapped.
- */
 data class AppNotification(
     val id: String = "",
     val recipientStaffId: String = "",

@@ -430,7 +430,7 @@ private fun AddVitalsDialog(
                     OutlinedTextField(value = bpDiastolic, onValueChange = { bpDiastolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Dia") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
                 OutlinedTextField(value = spo2, onValueChange = { spo2 = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("SpO2 (%)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(value = temp, onValueChange = { input -> temp = input.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Temp (°F)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(value = temp, onValueChange = { input -> temp = input.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Temperature (°F)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = sugarFasting, onValueChange = { sugarFasting = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar Fast") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     OutlinedTextField(value = sugarPP, onValueChange = { sugarPP = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar PP") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
@@ -481,7 +481,8 @@ private fun MarTabContent(
         MarTable(
             medications = medications,
             onMarkAdministered = { id -> administerTargetId = id },
-            onRequestAllotment = { entry -> marVm.requestAllotment(entry) }
+            onRequestAllotment = { entry -> marVm.requestAllotment(entry) },
+            onEditMedication   = { updated -> marVm.updateMedication(updated) }
         )
 
         // Only Admin can add medications

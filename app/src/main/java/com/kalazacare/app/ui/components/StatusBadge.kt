@@ -51,7 +51,7 @@ fun MedStatusBadge(status: MedStatus) {
 fun RoleBadge(role: UserRole) {
     when (role) {
         UserRole.ADMIN          -> StatusBadge(role.displayLabel(), KalazaRed, White)
-        UserRole.MEDICINE_STAFF -> StatusBadge(role.displayLabel(), Color(0xFFD1E7DD), Color(0xFF0F5132))
+        UserRole.SUPERVISOR     -> StatusBadge(role.displayLabel(), Color(0xFFD1E7DD), Color(0xFF0F5132))
         UserRole.STAFF          -> StatusBadge(role.displayLabel(), SurfaceVariant, OnSurfaceVariant)
     }
 }
