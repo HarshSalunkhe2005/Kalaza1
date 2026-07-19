@@ -23,6 +23,8 @@ import com.kalazacare.app.ui.medicine.MedicineScreen
 import com.kalazacare.app.ui.notifications.NotificationScreen
 import com.kalazacare.app.ui.patient.AddEditPatientScreen
 import com.kalazacare.app.ui.patient.PatientProfileScreen
+import com.kalazacare.app.ui.photoaudit.PhotoAuditScreen
+import com.kalazacare.app.ui.PhotoAuditViewModel
 import com.kalazacare.app.ui.summary.SummaryScreen
 import com.kalazacare.app.util.SessionManager
 
@@ -38,6 +40,7 @@ object Routes {
     const val SUMMARY         = "summary"
     const val MEDICINE        = "medicine"
     const val NOTIFICATIONS   = "notifications"
+    const val PHOTO_AUDIT     = "photoaudit"
 
     fun patientProfile(id: String) = "patient/$id"
     fun patientEdit(id: String)    = "patient/$id/edit"
@@ -128,11 +131,21 @@ fun KalazaNavHost() {
                 LoginScreen(
                     viewModel = vm,
                     onLoginSuccess = {
-                        navController.navigate(Routes.DASHBOARD) {
+                        // The restricted, photo-audit-only Admin role skips the normal
+                        // Dashboard/bottom-nav flow entirely — it only ever sees Photo Audit.
+                        val destination = if (SessionManager.isPhotoAdmin()) Routes.PHOTO_AUDIT else Routes.DASHBOARD
+                        navController.navigate(destination) {
                             popUpTo(Routes.LOGIN) { inclusive = true }
                         }
                     }
                 )
+            }
+
+            // ── Photo Audit (restricted Admin role's only screen) ─────────────
+            composable(Routes.PHOTO_AUDIT) {
+                val vm: PhotoAuditViewModel = viewModel(factory = factory)
+                ReloadOnResume { vm.load() }
+                PhotoAuditScreen(viewModel = vm, onLogout = onLogout)
             }
 
             // ── Dashboard ──────────────────────────────────────────────────────
@@ -228,7 +241,7 @@ fun KalazaNavHost() {
             // ── Summary ────────────────────────────────────────────────────────
             composable(Routes.SUMMARY) {
                 val vm: SummaryViewModel = viewModel(factory = factory)
-                ReloadOnResume { vm.load(vm.selectedDate.value) }
+                ReloadOnResume { vm.load(vm.startDate.value, vm.endDate.value) }
                 SummaryScreen(
                     viewModel = vm,
                     onBack = { navController.popBackStack() },

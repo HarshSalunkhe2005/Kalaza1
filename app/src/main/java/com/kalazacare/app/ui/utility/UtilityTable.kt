@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,7 +33,8 @@ import com.kalazacare.app.util.DateUtils
 fun UtilityTable(
     records: List<UtilityRecord>,
     items: List<UtilityItem>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onEdit: (UtilityRecord) -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
 
@@ -48,6 +53,7 @@ fun UtilityTable(
             HeaderCell("Issued To", width = 120.dp)
             HeaderCell("Issued By", width = 120.dp)
             HeaderCell("Checked By", width = 120.dp)
+            HeaderCell("", width = 56.dp)
         }
 
         // Table Body
@@ -60,7 +66,7 @@ fun UtilityTable(
                         .fillMaxWidth()
                         .background(backgroundColor)
                         .horizontalScroll(scrollState)
-                        .padding(vertical = 12.dp)
+                        .padding(vertical = 4.dp)
                 ) {
                     DataCell(DateUtils.formatDate(record.date), width = 100.dp)
                     DataCell(DateUtils.formatTime(record.time), width = 80.dp)
@@ -71,6 +77,9 @@ fun UtilityTable(
                     DataCell(record.issuedToCaregiver, width = 120.dp)
                     DataCell(record.issuedBySupervisor, width = 120.dp)
                     DataCell(record.checkedBy, width = 120.dp)
+                    IconButton(onClick = { onEdit(record) }, modifier = Modifier.width(56.dp)) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit utility record", tint = KalazaRed)
+                    }
                 }
             }
         }

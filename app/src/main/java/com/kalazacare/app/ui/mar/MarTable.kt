@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.AllotmentStatus
 import com.kalazacare.app.data.model.MedStatus
 import com.kalazacare.app.data.model.MedicationEntry
+import com.kalazacare.app.ui.components.ConfirmDialog
 import com.kalazacare.app.ui.components.MedStatusBadge
 import com.kalazacare.app.ui.components.TimeOfDayField
 import com.kalazacare.app.ui.theme.KalazaRed
@@ -29,9 +31,11 @@ fun MarTable(
     onMarkAdministered: (String) -> Unit,
     onRequestAllotment: (MedicationEntry) -> Unit = {},
     onEditMedication: ((MedicationEntry) -> Unit)? = null,   // CHANGE 5
+    onDeleteMedication: ((MedicationEntry) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var editTarget by remember { mutableStateOf<MedicationEntry?>(null) }
+    var deleteTarget by remember { mutableStateOf<MedicationEntry?>(null) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -53,7 +57,7 @@ fun MarTable(
                             Text(entry.medicineName, style = MaterialTheme.typography.titleMedium,
                                 color = OnSurface, fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f))
-                            // CHANGE 5: edit pencil for admin
+                            // Add/edit/delete of MAR entries is SuperAdmin-only
                             if (SessionManager.isAdmin()) {
                                 IconButton(
                                     onClick = { editTarget = entry },
@@ -61,6 +65,13 @@ fun MarTable(
                                 ) {
                                     Icon(Icons.Default.Edit, contentDescription = "Edit Medication",
                                         tint = KalazaRed, modifier = Modifier.size(16.dp))
+                                }
+                                IconButton(
+                                    onClick = { deleteTarget = entry },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Medication",
+                                        tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -127,6 +138,20 @@ fun MarTable(
                 onEditMedication?.invoke(updated)
                 editTarget = null
             }
+        )
+    }
+
+    deleteTarget?.let { entry ->
+        ConfirmDialog(
+            title = "Delete Medication",
+            message = "Delete ${entry.medicineName} (${entry.dose}) from this patient's MAR? This cannot be undone.",
+            confirmText = "Delete",
+            isDestructive = true,
+            onConfirm = {
+                onDeleteMedication?.invoke(entry)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null }
         )
     }
 }

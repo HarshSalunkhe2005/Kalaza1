@@ -65,6 +65,7 @@ class MockPatientRepository : PatientRepository {
 interface VitalsRepository {
     fun getVitalsForPatient(patientId: String): List<VitalRecord>
     fun getVitalsForDate(patientId: String, date: LocalDate): List<VitalRecord>
+    fun getVitalById(id: String): VitalRecord?
     fun addVital(record: VitalRecord)
     fun updateVital(record: VitalRecord)
 }
@@ -75,6 +76,7 @@ class MockVitalsRepository : VitalsRepository {
         records.filter { it.patientId == patientId }.sortedByDescending { it.date }
     override fun getVitalsForDate(patientId: String, date: LocalDate) =
         records.filter { it.patientId == patientId && it.date == date }
+    override fun getVitalById(id: String) = records.firstOrNull { it.id == id }
     override fun addVital(record: VitalRecord) { records.add(record) }
     override fun updateVital(record: VitalRecord) {
         val idx = records.indexOfFirst { it.id == record.id }
@@ -90,9 +92,11 @@ interface MedicationRepository {
     fun getMedicationsForPatient(patientId: String, date: LocalDate): List<MedicationEntry>
     fun getMedicationsForPatient(patientId: String): List<MedicationEntry>
     fun getMedicationsForDate(date: LocalDate): List<MedicationEntry>
+    fun getAllMedications(): List<MedicationEntry>
     fun getMedicationById(id: String): MedicationEntry?
     fun addMedication(entry: MedicationEntry)
     fun updateMedication(entry: MedicationEntry)
+    fun deleteMedication(id: String)
     fun markAdministered(id: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime)
     fun allotMedication(id: String, staffId: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime)
 }
@@ -121,6 +125,8 @@ class MockMedicationRepository : MedicationRepository {
     override fun getMedicationsForDate(date: LocalDate) =
         entries.filter { it.scheduledDate == date }.sortedBy { it.scheduleTime }
             .map { it.withComputedStatus() }
+    override fun getAllMedications() =
+        entries.sortedByDescending { it.scheduledDate }.map { it.withComputedStatus() }
     override fun getMedicationById(id: String) =
         entries.firstOrNull { it.id == id }?.withComputedStatus()
     override fun addMedication(entry: MedicationEntry) { entries.add(entry) }
@@ -128,6 +134,7 @@ class MockMedicationRepository : MedicationRepository {
         val idx = entries.indexOfFirst { it.id == entry.id }
         if (idx >= 0) entries[idx] = entry
     }
+    override fun deleteMedication(id: String) { entries.removeAll { it.id == id } }
     override fun markAdministered(id: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime) {
         val idx = entries.indexOfFirst { it.id == id }
         if (idx >= 0) entries[idx] = entries[idx].copy(
@@ -157,6 +164,7 @@ class MockMedicationRepository : MedicationRepository {
 
 interface UtilityRepository {
     fun getUtilityForPatient(patientId: String): List<UtilityRecord>
+    fun getUtilityRecordById(id: String): UtilityRecord?
     fun addUtilityRecord(record: UtilityRecord)
     fun updateUtilityRecord(record: UtilityRecord)
     fun getUtilityItems(): List<UtilityItem>
@@ -170,6 +178,7 @@ class MockUtilityRepository : UtilityRepository {
     private val items   = MockData.utilityItems.toMutableList()
     override fun getUtilityForPatient(patientId: String) =
         records.filter { it.patientId == patientId }.sortedByDescending { it.date }
+    override fun getUtilityRecordById(id: String) = records.firstOrNull { it.id == id }
     override fun addUtilityRecord(record: UtilityRecord) { records.add(record) }
     override fun updateUtilityRecord(record: UtilityRecord) {
         val idx = records.indexOfFirst { it.id == record.id }
@@ -196,6 +205,7 @@ interface DoctorVisitRepository {
     fun getVisitById(id: String): DoctorVisit?
     fun addVisit(visit: DoctorVisit)
     fun updateVisit(visit: DoctorVisit)  // CHANGE 4: edit + confirm + archive
+    fun deleteVisit(id: String)
 }
 
 class MockDoctorVisitRepository : DoctorVisitRepository {
@@ -208,11 +218,14 @@ class MockDoctorVisitRepository : DoctorVisitRepository {
         val idx = visits.indexOfFirst { it.id == visit.id }
         if (idx >= 0) visits[idx] = visit
     }
+    override fun deleteVisit(id: String) { visits.removeAll { it.id == id } }
 }
 
 interface CareNoteRepository {
     fun getNotesForPatient(patientId: String): List<CareNote>
     fun addNote(note: CareNote)
+    fun updateNote(note: CareNote)
+    fun getNoteById(id: String): CareNote?
 }
 
 class MockCareNoteRepository : CareNoteRepository {
@@ -220,6 +233,11 @@ class MockCareNoteRepository : CareNoteRepository {
     override fun getNotesForPatient(patientId: String) =
         notes.filter { it.patientId == patientId }.sortedByDescending { it.timestamp }
     override fun addNote(note: CareNote) { notes.add(note) }
+    override fun updateNote(note: CareNote) {
+        val idx = notes.indexOfFirst { it.id == note.id }
+        if (idx >= 0) notes[idx] = note
+    }
+    override fun getNoteById(id: String) = notes.firstOrNull { it.id == id }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

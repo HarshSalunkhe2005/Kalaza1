@@ -19,6 +19,7 @@ import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.SessionManager
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddEditPatientScreen(
     patientId: String?,
@@ -40,6 +41,8 @@ fun AddEditPatientScreen(
     var emergencyContact by remember { mutableStateOf("") }
     var emergencyPhone by remember { mutableStateOf("") }
     var selectedGender by remember { mutableStateOf(Gender.MALE) }
+    var admissionDate by remember { mutableStateOf(java.time.LocalDate.now()) }
+    var showAdmissionDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(patientId) {
         if (isEditing && patientId != null) {
@@ -60,6 +63,7 @@ fun AddEditPatientScreen(
             emergencyContact = p.emergencyContact
             emergencyPhone = p.emergencyPhone
             selectedGender = p.gender
+            admissionDate = p.admissionDate
         }
     }
 
@@ -122,11 +126,20 @@ fun AddEditPatientScreen(
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Admission Date", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(
+                        onClick = { showAdmissionDatePicker = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(admissionDate.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")))
+                    }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -210,7 +223,7 @@ fun AddEditPatientScreen(
                         allergies = allergies,
                         emergencyContact = emergencyContact,
                         emergencyPhone = emergencyPhone,
-                        admissionDate = if (isEditing) currentPatient?.admissionDate ?: java.time.LocalDate.now() else java.time.LocalDate.now()
+                        admissionDate = admissionDate
                     )
 
                     if (isEditing && currentPatient != null) {
@@ -237,6 +250,28 @@ fun AddEditPatientScreen(
             }
             
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+
+    if (showAdmissionDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = admissionDate.toEpochDay() * 86_400_000L
+        )
+        DatePickerDialog(
+            onDismissRequest = { showAdmissionDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        admissionDate = java.time.LocalDate.ofEpochDay(millis / 86_400_000L)
+                    }
+                    showAdmissionDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAdmissionDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
         }
     }
 }

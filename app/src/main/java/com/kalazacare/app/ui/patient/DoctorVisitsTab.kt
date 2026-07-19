@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -20,9 +21,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.DoctorVisit
 import com.kalazacare.app.ui.DoctorVisitViewModel
+import com.kalazacare.app.ui.components.ConfirmDialog
 import com.kalazacare.app.ui.components.EmptyState
+import com.kalazacare.app.ui.components.TimeOfDayField
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.StatusSuccess
+import com.kalazacare.app.util.DateUtils
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -36,6 +40,7 @@ fun DoctorVisitsTab(
 ) {
     var showAddDialog  by remember { mutableStateOf(false) }
     var editTarget     by remember { mutableStateOf<DoctorVisit?>(null) }
+    var deleteTarget   by remember { mutableStateOf<DoctorVisit?>(null) }
     var selectedTab    by remember { mutableIntStateOf(0) }   // 0=Upcoming, 1=Archived
     val context = LocalContext.current
 
@@ -85,6 +90,7 @@ fun DoctorVisitsTab(
                         DoctorVisitCard(
                             visit = visit,
                             onEdit = { editTarget = visit },
+                            onDelete = { deleteTarget = visit },
                             onConfirm = { viewModel.confirmVisit(visit) }
                         )
                     }
@@ -125,12 +131,29 @@ fun DoctorVisitsTab(
             }
         )
     }
+
+    deleteTarget?.let { v ->
+        ConfirmDialog(
+            title = "Delete Doctor Visit",
+            message = "Delete the visit with Dr. ${v.doctorName}? Non-admin requests go through Admin approval first.",
+            confirmText = "Delete",
+            isDestructive = true,
+            onConfirm = {
+                viewModel.requestDelete(v) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null }
+        )
+    }
 }
 
 @Composable
 private fun DoctorVisitCard(
     visit: DoctorVisit,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     val isPast = !visit.date.isAfter(LocalDate.now())
@@ -163,7 +186,7 @@ private fun DoctorVisitCard(
                             tint = if (isPast) MaterialTheme.colorScheme.error else KalazaRed,
                             modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text(dateStr,
+                        Text("$dateStr, ${DateUtils.formatTime(visit.time)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isPast && !visit.isArchived) MaterialTheme.colorScheme.error
                                     else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -200,6 +223,12 @@ private fun DoctorVisitCard(
             if (!visit.isArchived) {
                 Spacer(Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
                     TextButton(onClick = onEdit) {
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
@@ -247,6 +276,7 @@ private fun VisitDialog(
     var notes               by remember { mutableStateOf(initial?.notes ?: "") }
     var prescriptionChanges by remember { mutableStateOf(initial?.prescriptionChanges ?: "") }
     var visitDate           by remember { mutableStateOf(initial?.date ?: LocalDate.now().plusDays(7)) }
+    var visitTime           by remember { mutableStateOf(initial?.time ?: java.time.LocalTime.of(10, 0)) }
     var showDatePicker      by remember { mutableStateOf(false) }
 
     // Date picker state
@@ -273,6 +303,8 @@ private fun VisitDialog(
                     Spacer(Modifier.width(8.dp))
                     Text("Visit Date: ${visitDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy"))}")
                 }
+                Text("Visit Time:", style = MaterialTheme.typography.bodyMedium)
+                TimeOfDayField(initial = visitTime, onChange = { visitTime = it })
 
                 OutlinedTextField(value = notes, onValueChange = { notes = it },
                     label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
@@ -288,6 +320,7 @@ private fun VisitDialog(
                             doctorName          = doctorName,
                             specialty           = specialty,
                             date                = visitDate,
+                            time                = visitTime,
                             notes               = notes,
                             prescriptionChanges = prescriptionChanges,
                         )

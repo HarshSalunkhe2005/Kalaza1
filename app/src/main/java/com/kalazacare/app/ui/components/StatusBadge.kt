@@ -50,7 +50,8 @@ fun MedStatusBadge(status: MedStatus) {
 @Composable
 fun RoleBadge(role: UserRole) {
     when (role) {
-        UserRole.ADMIN          -> StatusBadge(role.displayLabel(), KalazaRed, White)
+        UserRole.SUPER_ADMIN    -> StatusBadge(role.displayLabel(), KalazaRed, White)
+        UserRole.ADMIN          -> StatusBadge(role.displayLabel(), Color(0xFF5C4B99), White)
         UserRole.SUPERVISOR     -> StatusBadge(role.displayLabel(), Color(0xFFD1E7DD), Color(0xFF0F5132))
         UserRole.STAFF          -> StatusBadge(role.displayLabel(), SurfaceVariant, OnSurfaceVariant)
     }

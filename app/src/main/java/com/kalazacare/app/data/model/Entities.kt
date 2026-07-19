@@ -9,12 +9,16 @@ import java.time.LocalTime
 // ─────────────────────────────────────────────────────────────────────────────
 
 // CHANGE 8: MEDICINE_STAFF → SUPERVISOR
-enum class UserRole { ADMIN, STAFF, SUPERVISOR }
+// CHANGE 9: ADMIN → SUPER_ADMIN (keeps all prior admin powers); new ADMIN is a
+// restricted, photo-audit-only role (sees only medicine allotment/administration
+// evidence photos, nothing else).
+enum class UserRole { SUPER_ADMIN, ADMIN, STAFF, SUPERVISOR }
 
 fun UserRole.displayLabel(): String = when (this) {
-    UserRole.ADMIN      -> "Admin"
-    UserRole.STAFF      -> "Regular Staff"
-    UserRole.SUPERVISOR -> "Supervisor"
+    UserRole.SUPER_ADMIN -> "Super Admin"
+    UserRole.ADMIN       -> "Admin"
+    UserRole.STAFF       -> "Regular Staff"
+    UserRole.SUPERVISOR  -> "Supervisor"
 }
 
 enum class Gender { MALE, FEMALE, OTHER }
@@ -22,7 +26,10 @@ enum class Gender { MALE, FEMALE, OTHER }
 enum class ApprovalStatus { PENDING, APPROVED, REJECTED }
 
 /** What kind of record an [ApprovalRequest] applies its diff to once approved. */
-enum class ApprovalEntityType { PATIENT, DOCTOR_VISIT }
+enum class ApprovalEntityType { PATIENT, DOCTOR_VISIT, VITAL, UTILITY, CARE_NOTE }
+
+/** What an [ApprovalRequest] is asking for — a field edit, or removing the whole record. */
+enum class ApprovalAction { EDIT, DELETE }
 
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
@@ -136,6 +143,7 @@ data class DoctorVisit(
     val doctorName: String = "",
     val specialty: String = "",
     val date: LocalDate = LocalDate.now(),          // actual/planned visit date
+    val time: LocalTime = LocalTime.now(),
     val notes: String = "",
     val nextVisitDate: LocalDate? = null,
     val prescriptionChanges: String = "",
@@ -160,6 +168,7 @@ data class ApprovalRequest(
     val id: String = "",
     val entityType: ApprovalEntityType = ApprovalEntityType.PATIENT,
     val entityId: String = "",
+    val action: ApprovalAction = ApprovalAction.EDIT,
     val patientId: String = "",
     val patientName: String = "",
     val requestedById: String = "",

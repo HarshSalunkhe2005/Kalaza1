@@ -1,14 +1,13 @@
 package com.kalazacare.app.ui.summary
 
 import android.content.Context
-import android.content.Intent
-import android.os.Environment
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,17 +15,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import com.kalazacare.app.data.model.Patient
+import com.kalazacare.app.ui.PatientRangeSummary
 import com.kalazacare.app.ui.SummaryStats
 import com.kalazacare.app.ui.SummaryViewModel
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.theme.KalazaRed
-import java.io.File
+import com.kalazacare.app.util.DownloadsSaver
+import com.kalazacare.app.util.XlsxWriter
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-// CHANGE 3: date picker + export report
+// CHANGE 3: date-range picker + xlsx export straight to Downloads
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,26 +36,29 @@ fun SummaryScreen(
     onLogout: () -> Unit,
     onPatientClick: (String) -> Unit,
 ) {
-    val stats        by viewModel.stats.collectAsState()
-    val selectedDate by viewModel.selectedDate.collectAsState()
-    val patients     by viewModel.patients.collectAsState()
-    val context      = LocalContext.current
+    val stats      by viewModel.stats.collectAsState()
+    val startDate  by viewModel.startDate.collectAsState()
+    val endDate    by viewModel.endDate.collectAsState()
+    val patients   by viewModel.patients.collectAsState()
+    val context    = LocalContext.current
 
-    var showDatePicker by remember { mutableStateOf(false) }
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = selectedDate.toEpochDay() * 86_400_000L
-    )
+    var pickingStart by remember { mutableStateOf(false) }
+    var pickingEnd by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             KalazaTopBar(
-                title = "Daily Summary",
+                title = "Summary Report",
                 onBack = onBack,
                 onLogout = onLogout,
                 actions = {
-                    // CHANGE 3: export button
-                    IconButton(onClick = { exportReport(context, selectedDate, stats, patients) }) {
-                        Icon(Icons.Default.Share, contentDescription = "Export Report",
+                    IconButton(onClick = {
+                        val report = viewModel.buildRangeReport()
+                        val savedName = exportXlsxToDownloads(context, startDate, endDate, stats, report)
+                        val message = if (savedName != null) "Saved to Downloads: $savedName" else "Export failed"
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "Download Report (.xlsx)",
                             tint = com.kalazacare.app.ui.theme.White)
                     }
                 }
@@ -64,7 +67,7 @@ fun SummaryScreen(
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
-            // CHANGE 3: clickable date header → date picker
+            // CHANGE 3: date-range header → start/end date pickers
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth()
@@ -72,16 +75,18 @@ fun SummaryScreen(
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = selectedDate.format(DateTimeFormatter.ofPattern("EEEE, dd MMM yyyy")),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    IconButton(onClick = { showDatePicker = true }) {
-                        Icon(Icons.Default.DateRange, contentDescription = "Pick Date", tint = KalazaRed)
+                    OutlinedButton(onClick = { pickingStart = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, tint = KalazaRed, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(startDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy")))
+                    }
+                    Text("to", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = { pickingEnd = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, tint = KalazaRed, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(endDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy")))
                     }
                 }
             }
@@ -118,74 +123,116 @@ fun SummaryScreen(
         }
     }
 
-    // CHANGE 3: date picker dialog
-    if (showDatePicker) {
+    if (pickingStart) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = startDate.toEpochDay() * 86_400_000L)
         DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
+            onDismissRequest = { pickingStart = false },
             confirmButton = {
                 TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis ->
-                        viewModel.load(LocalDate.ofEpochDay(millis / 86_400_000L))
+                    state.selectedDateMillis?.let { millis ->
+                        viewModel.load(LocalDate.ofEpochDay(millis / 86_400_000L), endDate)
                     }
-                    showDatePicker = false
+                    pickingStart = false
                 }) { Text("OK") }
             },
-            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
-        ) {
-            DatePicker(state = datePickerState)
-        }
+            dismissButton = { TextButton(onClick = { pickingStart = false }) { Text("Cancel") } }
+        ) { DatePicker(state = state) }
+    }
+
+    if (pickingEnd) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = endDate.toEpochDay() * 86_400_000L)
+        DatePickerDialog(
+            onDismissRequest = { pickingEnd = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { millis ->
+                        viewModel.load(startDate, LocalDate.ofEpochDay(millis / 86_400_000L))
+                    }
+                    pickingEnd = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { pickingEnd = false }) { Text("Cancel") } }
+        ) { DatePicker(state = state) }
     }
 }
 
-// CHANGE 3: plain-text report export via Android share sheet
-private fun exportReport(
+// CHANGE 3: xlsx workbook — a Summary tab plus one tab per patient — saved
+// straight to Downloads (no share sheet).
+private fun exportXlsxToDownloads(
     context: Context,
-    date: LocalDate,
+    startDate: LocalDate,
+    endDate: LocalDate,
     stats: SummaryStats,
-    patients: List<Patient>
-) {
-    val dateStr = date.format(DateTimeFormatter.ofPattern("dd MMM yyyy"))
-    val sb = StringBuilder()
-    sb.appendLine("KALAZA CARE — DAILY REPORT")
-    sb.appendLine("Date : $dateStr")
-    sb.appendLine("Generated : ${java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm"))}")
-    sb.appendLine("=".repeat(40))
-    sb.appendLine()
-    sb.appendLine("SUMMARY STATISTICS")
-    sb.appendLine("  Vitals Recorded     : ${stats.vitalsRecorded}")
-    sb.appendLine("  Medications Given   : ${stats.medsAdministered}")
-    sb.appendLine("  Medications Pending : ${stats.medsPending}")
-    sb.appendLine("  Utility Logs        : ${stats.utilityLogs}")
-    sb.appendLine("  Approvals Pending   : ${stats.pendingApprovals}")
-    sb.appendLine()
-    sb.appendLine("ACTIVE PATIENTS (${patients.size})")
-    patients.forEach { p ->
-        sb.appendLine("  • ${p.name}  |  Room ${p.roomNo}  |  ${p.primaryDiagnosis}")
-    }
-    sb.appendLine()
-    sb.appendLine("--- End of Report ---")
+    report: List<PatientRangeSummary>,
+): String? {
+    val rangeLabel = if (startDate == endDate) startDate.toString() else "${startDate}_to_${endDate}"
+    val dateFmt = DateTimeFormatter.ofPattern("dd MMM yyyy")
 
-    try {
-        val dir  = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            ?: context.filesDir
-        val file = File(dir, "KalazaCare_Report_${date}.txt")
-        file.writeText(sb.toString())
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Kalaza Care Daily Report — $dateStr")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val writer = XlsxWriter()
+
+    val summaryRows = mutableListOf(
+        listOf("Kalaza Care — Summary Report"),
+        listOf("Range", "${startDate.format(dateFmt)} to ${endDate.format(dateFmt)}"),
+        listOf("Generated", java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm"))),
+        listOf(),
+        listOf("Metric", "Value"),
+        listOf("Vitals Recorded", stats.vitalsRecorded.toString()),
+        listOf("Medications Given", stats.medsAdministered.toString()),
+        listOf("Medications Pending", stats.medsPending.toString()),
+        listOf("Utility Logs", stats.utilityLogs.toString()),
+        listOf("Approvals Pending", stats.pendingApprovals.toString()),
+        listOf(),
+        listOf("Patient", "Room", "Primary Diagnosis"),
+    )
+    report.forEach { r ->
+        summaryRows.add(listOf(r.patient.name, r.patient.roomNo, r.patient.primaryDiagnosis))
+    }
+    writer.addSheet("Summary", summaryRows)
+
+    report.forEach { r ->
+        val rows = mutableListOf<List<String>>()
+        rows.add(listOf(r.patient.name))
+        rows.add(listOf())
+        rows.add(listOf("Vitals"))
+        rows.add(listOf("Date", "Time", "Pulse", "BP", "SpO2", "Temp", "Fasting", "PP", "Signed By"))
+        r.vitals.forEach { v ->
+            rows.add(listOf(v.date.toString(), v.time.toString(), v.pulse, v.bp, v.spo2, v.temperature, v.sugarFasting, v.sugarPP, v.signedBy))
         }
-        context.startActivity(Intent.createChooser(intent, "Share Report"))
+        rows.add(listOf())
+        rows.add(listOf("Medications"))
+        rows.add(listOf("Date", "Time", "Medicine", "Dose", "Status", "Administered By"))
+        r.medications.forEach { m ->
+            rows.add(listOf(m.scheduledDate.toString(), m.scheduleTime.toString(), m.medicineName, m.dose, m.status.name, m.administeredBy))
+        }
+        rows.add(listOf())
+        rows.add(listOf("Utility Records"))
+        rows.add(listOf("Date", "Time", "Issued To", "Issued By", "Checked By"))
+        r.utility.forEach { u ->
+            rows.add(listOf(u.date.toString(), u.time.toString(), u.issuedToCaregiver, u.issuedBySupervisor, u.checkedBy))
+        }
+        rows.add(listOf())
+        rows.add(listOf("Doctor Visits"))
+        rows.add(listOf("Date", "Time", "Doctor", "Specialty", "Notes"))
+        r.visits.forEach { v ->
+            rows.add(listOf(v.date.toString(), v.time.toString(), v.doctorName, v.specialty, v.notes))
+        }
+        rows.add(listOf())
+        rows.add(listOf("Care Notes"))
+        rows.add(listOf("Timestamp", "Staff", "Note"))
+        r.notes.forEach { n ->
+            rows.add(listOf(n.timestamp.toString(), n.staffName, n.note))
+        }
+        writer.addSheet(r.patient.name, rows)
+    }
+
+    val bytes = writer.build()
+    val filename = "KalazaCare_Report_$rangeLabel.xlsx"
+    val mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return try {
+        val uri = DownloadsSaver.saveToDownloads(context, filename, mimeType, bytes)
+        if (uri != null) filename else null
     } catch (e: Exception) {
-        // Fallback: share as plain text
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, sb.toString())
-            putExtra(Intent.EXTRA_SUBJECT, "Kalaza Care Daily Report — $dateStr")
-        }
-        context.startActivity(Intent.createChooser(intent, "Share Report"))
+        null
     }
 }
 

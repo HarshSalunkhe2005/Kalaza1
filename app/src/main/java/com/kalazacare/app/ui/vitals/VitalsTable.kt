@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,7 +26,8 @@ import com.kalazacare.app.util.DateUtils
 @Composable
 fun VitalsTable(
     vitals: List<VitalRecord>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onEdit: (VitalRecord) -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
 
@@ -44,19 +49,20 @@ fun VitalsTable(
             HeaderCell("Fasting", width = 90.dp)
             HeaderCell("PP", width = 90.dp)
             HeaderCell("Sign", width = 120.dp)
+            HeaderCell("", width = 56.dp)
         }
 
         // Table Body
         LazyColumn(modifier = Modifier.weight(1f)) {
             itemsIndexed(vitals) { index, record ->
                 val backgroundColor = if (index % 2 == 0) White else SurfaceVariant
-                
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(backgroundColor)
                         .horizontalScroll(scrollState)
-                        .padding(vertical = 12.dp)
+                        .padding(vertical = 4.dp)
                 ) {
                     DataCell(DateUtils.formatDate(record.date), width = 100.dp)
                     DataCell(DateUtils.formatTime(record.time), width = 80.dp)
@@ -67,6 +73,9 @@ fun VitalsTable(
                     DataCell(record.sugarFasting, width = 90.dp)
                     DataCell(record.sugarPP, width = 90.dp)
                     DataCell(record.signedBy, width = 120.dp)
+                    IconButton(onClick = { onEdit(record) }, modifier = Modifier.width(56.dp)) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit vitals record", tint = KalazaRed)
+                    }
                 }
             }
         }

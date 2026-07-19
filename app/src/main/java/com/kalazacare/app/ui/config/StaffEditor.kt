@@ -194,9 +194,9 @@ private fun AddStaffDialog(
                         expanded = expanded,
                         onDismissRequest = { expanded = false }
                     ) {
-                        // Admin can only assign the two operational roles — ADMIN accounts
-                        // aren't created through this dialog.
-                        UserRole.entries.filter { it != UserRole.ADMIN }.forEach { role ->
+                        // SuperAdmin can assign any of the three operational roles —
+                        // SUPER_ADMIN accounts aren't created through this dialog.
+                        UserRole.entries.filter { it != UserRole.SUPER_ADMIN }.forEach { role ->
                             DropdownMenuItem(
                                 text = { Text(role.displayLabel()) },
                                 onClick = {

@@ -1,7 +1,7 @@
 # Kalaza Care - Project State & Workflows
 
 ## Overview
-Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Admins, regular Staff, and Supervisor, with an intricate approval queue for staff-made edits and a two-checkpoint (allot → administer) medication workflow.
+Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Super Admins, a restricted photo-audit-only Admin, regular Staff, and Supervisor, with an intricate approval queue for staff-made edits and a two-checkpoint (allot → administer) medication workflow.
 
 ## Technology Stack
 - **Platform:** Android (Min SDK 24, Target SDK 34)
@@ -15,25 +15,27 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 ## What is Done (Completed Features)
 
 ### 1. Role-Based Access & Authentication (UI & Logic)
-- **Admin Role:** Has full access. Can view the Summary Tab, add new patients directly, add/revoke/delete staff members (choosing between the two operational roles), and approve/reject staff edit requests.
+- **Super Admin Role** (`UserRole.SUPER_ADMIN` — this is the old, fully-privileged `ADMIN`, renamed): Has full access. Can view the Summary Tab, add new patients directly, add/revoke/delete staff members, approve/reject staff edit requests, and is the only role that can add/edit/delete MAR (medication) entries. `SessionManager.isAdmin()` checks this role — the name wasn't changed everywhere it's used, since the check's meaning ("today's fully-privileged admin") didn't change, only the enum's name did.
+- **Admin Role** (`UserRole.ADMIN`, new, restricted): A completely separate, narrow role. On login it's routed straight to a standalone **Photo Audit** screen (`Routes.PHOTO_AUDIT`, no bottom nav) that lists every medicine allotment/administration evidence photo across all patients, read-only. No dashboard, no approvals, no staff config, no other access at all. `SessionManager.isPhotoAdmin()` checks this role.
 - **Staff Role (Regular):** Has limited access. Cannot view the Summary Tab. Any edits to patient data generate an Approval Request instead of saving directly.
-- **Staff Role (Medicine):** Same dashboard and permissions as Regular Staff, plus an additional **Medicine** tab for allotting doses ahead of administration (see workflow below).
+- **Supervisor Role:** Same dashboard and permissions as Regular Staff, plus an additional **Medicine** tab for allotting doses ahead of administration (see workflow below). MAR add/edit/delete is Super Admin-only — Supervisor cannot touch MAR entries directly, only the allotment round in the Medicine tab.
 - **Login is by Name, not Email.** The login screen asks for the staff member's Name; `AuthRepository.login` matches `Staff.name` case-insensitively. `Staff.email` still exists as a separate contact-info field (shown in Config), it's just no longer the login credential.
 
 ### 2. Navigation & UI Shell
-- **Bottom Navigation Bar:** Context-aware based on the logged-in user. (Admin sees: Patients, Approvals, Audit Log, Config, Summary. Supervisor sees: Patients, Medicine. Regular Staff sees: Patients).
-- **Top App Bar:** Customized to display the brand's red stripe (`KalazaRed`), the app logo, dynamic screen titles, and a clickable Notification Bell.
+- **Bottom Navigation Bar:** Context-aware based on the logged-in user. (Super Admin sees: Patients, Approvals, Audit Log, Config, Summary. Supervisor sees: Patients, Medicine. Regular Staff sees: Patients. The restricted Admin role sees no bottom nav at all — it only ever has the single Photo Audit screen.)
+- **Top App Bar:** Customized to display the brand's red stripe (`KalazaRed`), the app logo, dynamic screen titles, and a clickable Notification Bell. On the Patients/Dashboard tab, the subtitle line shows the logged-in staff member's own name instead of a static "Dashboard" label.
 
 ### 3. Patient Management
 - **Dashboard:** Displays quick stats (total patients, pending meds, pending approvals) and a searchable list of patient cards. Reloads on resume so returning from another tab shows current data.
 - **Patient Profile:**
-  - **Details Tab:** View/Edit patient demographics and medical history. Staff edits go to the Approval Queue. Admin edits save immediately and log to Audit.
-  - **Vitals Tab:** Record and view daily vitals (BP, Heart Rate, Temp, SpO2).
-  - **MAR (Medication Administration Record) Tab:** Track scheduled medications. Overdue status is computed live from the scheduled time. Marking a dose "given" requires photo evidence, and shows whether the dose has been allotted yet; any staff can flag a "Request Allotment" if supervisor forgot.
-  - **Utility Tab:** Log usage of medical utilities. Columns/fields are generated dynamically from whatever's configured in Config → Utility Items — adding a new item type there shows up here immediately, no code change needed.
-  - **Doctor Visits Tab:** Log specific instructions and notes left by visiting doctors.
-  - **Care Notes Tab:** Add general nursing/care notes for the patient.
-- **Medicine Tab (Supervisor only):** A facility-wide "rounds" view of every dose still awaiting allotment today, plus any pending allotment requests raised by regular staff. Allotting a dose requires photo evidence.
+  - **Details Tab:** View/Edit patient demographics and medical history, including the **Admission Date** (now an editable date picker, previously fixed at creation time). Staff edits go to the Approval Queue. Super Admin edits save immediately and log to Audit.
+  - **Vitals Tab:** Record and view daily vitals (BP, Heart Rate, Temp, SpO2). Every role can edit an existing row via a pencil icon on that row: edits within 24h of the original entry apply directly (and are logged to Audit); edits made more than 24h after the entry go through the Approval Queue instead. Super Admin always edits directly.
+  - **MAR (Medication Administration Record) Tab:** Track scheduled medications. Add/edit/delete of MAR entries is Super Admin-only. Overdue status is computed live from the scheduled time on every read, so it self-corrects in both directions (editing a dose to a later time un-overdues it). Marking a dose "given" requires photo evidence, and shows whether the dose has been allotted yet; any staff can flag a "Request Allotment" if supervisor forgot.
+  - **Utility Tab:** Log usage of medical utilities. Columns/fields are generated dynamically from whatever's configured in Config → Utility Items — adding a new item type there shows up here immediately, no code change needed. Row-level edit uses the same 24h-grace-then-approval policy as Vitals.
+  - **Doctor Visits Tab:** Log specific instructions and notes left by visiting doctors, now including a visit **time** alongside the date. Visits can also be **deleted** — Super Admin deletes directly (logged to Audit); every other role's delete request goes through the Approval Queue first.
+  - **Care Notes Tab:** Add general nursing/care notes for the patient, and edit an existing note via its pencil icon — same 24h-grace-then-approval policy as Vitals/Utility.
+- **Medicine Tab (Supervisor only):** A facility-wide "rounds" view of every dose still awaiting allotment today, plus any pending allotment requests raised by regular staff. Allotting a dose requires photo evidence. This is unchanged by the MAR-CRUD restriction above — allotment rounds and MAR entry CRUD are separate concerns.
+- **Photo Audit (restricted Admin role only):** A standalone, read-only screen (`ui/photoaudit/PhotoAuditScreen.kt`) listing every allotment/administration evidence photo across all patients — medicine name, patient, staff, timestamp, and whether the 48h retention window has expired. This is the *only* screen this role ever sees.
 
 ### 4. Admin Workflows
 - **Approval Queue:** A dedicated screen where Admins can review, approve, or reject field-level changes requested by Staff. Approving applies the change directly to the Patient record (not just the request's status) and logs to Audit; rejecting also logs to Audit.
@@ -62,9 +64,9 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - Medications can still be scheduled before a patient's admission date (there are legitimate backdating reasons), but doing so now shows a warning Toast instead of silently accepting it.
 
 ### 8. Doctor Visit Editing & Generalized Approval
-- Doctor visits are now editable by any role. Admin edits apply directly (+ Audit Log entry); Staff/Supervisor edits generate field-level `ApprovalRequest`s just like Patient edits, routed to the same Approval Queue.
-- `ApprovalRequest` now carries an `entityType` (`PATIENT` or `DOCTOR_VISIT`) and `entityId` so `ApprovalViewModel.approve()` knows which repository to apply the diff to. The Approval Queue UI is unchanged — it already only cares about patient name / field / old-new value, which both entity types populate.
-- **Not yet covered by approval-gating:** Care Notes, Vitals, and Utility records still have no edit UI at all (add-only), so item 18 ("anything added should be editable with due approval") was scoped to Doctor Visits since that was explicitly called out as broken; extending edit+approval to those three would be a reasonable follow-up but is a larger net-new feature, not a bug fix.
+- Doctor visits are editable and deletable by any role. Super Admin edits/deletes apply directly (+ Audit Log entry); Staff/Supervisor edits/deletes generate `ApprovalRequest`s (field-level diffs for edits, a single delete-flagged request for deletes) routed to the Approval Queue.
+- `ApprovalRequest` now carries an `entityType` (`PATIENT`, `DOCTOR_VISIT`, `VITAL`, `UTILITY`, or `CARE_NOTE`), an `entityId`, and an `action` (`EDIT` or `DELETE`), so `ApprovalViewModel.approve()` knows which repository to apply the diff to and whether to delete or patch the record.
+- Vitals, Utility records, and Care Notes are now also editable by every role, via the row-level pencil icon on each entry. These three follow a **24h grace window**: edits made within 24h of the original entry's timestamp apply directly for any role (mistakes happen — all such edits are still logged to Audit); edits made after 24h route through the Approval Queue like everything else. Super Admin always edits directly regardless of age. There is currently no delete UI for Vitals/Utility/Care Notes (edit-only, matching what was asked for) — a follow-up if delete is ever needed there too.
 
 ### 9. Time Input
 - All medication scheduling (Add Medication, Edit Medication) now uses a 12-hour HH:MM + AM/PM picker (`TimeOfDayField`) instead of raw 24-hour text fields, while still storing/computing everything internally as 24-hour `LocalTime`.
@@ -72,7 +74,22 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 ### 10. Patient Profile Robustness
 - Editing a patient whose data hasn't finished loading (e.g. a stale/bad deep link) no longer risks a `NullPointerException` — Save is disabled and blocked with a "still loading" message until the patient record is actually present.
 - A patient profile for a non-existent ID now shows a "Patient not found" state with a Go Back button, instead of spinning forever indistinguishably from a real loading state.
-- `MedicationEntry`'s live-computed OVERDUE/PENDING status is now reversible in both directions — editing a dose's time to a later slot un-overdues it instead of leaving it stuck OVERDUE forever (previously only PENDING→OVERDUE was recomputed).
+- `MedicationEntry`'s live-computed OVERDUE/PENDING status is reversible in both directions — editing a dose's time to a later slot un-overdues it instead of leaving it stuck OVERDUE forever. Verified by trace: this self-heals on every subsequent read regardless of what gets persisted mid-edit, so no residual bug remains here.
+
+### 11. Role Restructure: Super Admin + Photo-Audit-Only Admin
+- `UserRole.ADMIN` was renamed to `UserRole.SUPER_ADMIN` (keeps every existing admin power — `SessionManager.isAdmin()` now checks `SUPER_ADMIN`). A brand new, much more restricted `UserRole.ADMIN` was added: on login it goes straight to a standalone Photo Audit screen (`Routes.PHOTO_AUDIT`) and has no other access anywhere in the app — no dashboard, no approvals, no config, no bottom nav.
+- `StaffEditor`'s "Add Staff" role picker now excludes only `SUPER_ADMIN` (was excluding the old `ADMIN`) — Staff/Supervisor/Admin are all assignable through Config, Super Admin accounts aren't created through this dialog.
+- `RoleBadge` gained a distinct color for the new `ADMIN` role so it's visually distinguishable from `SUPER_ADMIN` in staff lists.
+
+### 12. MAR (Medication) Fixes & Delete
+- MAR add/edit/delete is Super Admin-only (`SessionManager.isAdmin()`); a delete action (with confirmation dialog) was added next to the existing edit pencil — there was previously no way to remove a MAR entry at all.
+- `TimeOfDayField`'s AM/PM `FilterChip`s previously left the selected chip's label using the theme's default (sometimes low-contrast) color; both chips now use an explicit `selectedLabelColor`/`labelColor` pair for reliable contrast in both states.
+- `TimeOfDayField`'s HH/MM text fields now clamp live as you type (HH to 1–12, MM to 0–59) instead of only clamping the emitted value while letting the displayed text show something out of range.
+
+### 13. Summary Report: Date Range + xlsx Export
+- The Summary screen now takes a **date range** (start + end date pickers) instead of a single date; `SummaryViewModel.load(start, end)` aggregates stats and per-patient breakdowns across the whole range.
+- The old plain-text share-sheet export was replaced with a real `.xlsx` workbook, built by a small dependency-free `XlsxWriter` (`util/XlsxWriter.kt` — hand-writes the OOXML zip/XML parts, no Apache POI). The workbook has a **Summary** sheet plus one sheet per patient (vitals/medications/utility/visits/notes for the selected range).
+- The file is saved straight to the device's **Downloads** folder via `DownloadsSaver` (`util/DownloadsSaver.kt`, MediaStore on API 29+, direct file write on older API levels) — no share sheet, no "send to" step.
 
 ---
 
@@ -131,7 +148,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 3. To restore a staff member: Admin clicks "Activate" on the revoked card.
 4. To remove permanently: Admin clicks "Delete", destroying the record.
 5. The Admin's own card omits the "Revoke" button to prevent locking themselves out.
-6. When adding a staff member, Admin picks between the two operational roles — Regular Staff or Supervisor. (Admin accounts aren't created through this dialog.)
+6. When adding a staff member, Admin picks between the three operational roles — Regular Staff, Supervisor, or the restricted photo-audit Admin. (Super Admin accounts aren't created through this dialog.)
 
 ### Utility Item Workflow
 1. Admin adds/removes item types in Config → Utility Items (e.g. "Syringes").

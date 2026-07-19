@@ -1,5 +1,6 @@
 package com.kalazacare.app.ui.patient
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,8 @@ fun CareNotesTab(
     viewModel: CareNoteViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<CareNote?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (notes.isEmpty()) {
@@ -43,7 +46,7 @@ fun CareNotesTab(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(notes) { note ->
-                    CareNoteItem(note)
+                    CareNoteItem(note, onEdit = { editTarget = note })
                 }
             }
         }
@@ -69,10 +72,24 @@ fun CareNotesTab(
             }
         )
     }
+
+    editTarget?.let { note ->
+        AddCareNoteDialog(
+            title = "Edit Care Note",
+            initialText = note.note,
+            onDismiss = { editTarget = null },
+            onSave = { newText ->
+                viewModel.updateNote(note, newText) { _, message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                editTarget = null
+            }
+        )
+    }
 }
 
 @Composable
-private fun CareNoteItem(note: CareNote) {
+private fun CareNoteItem(note: CareNote, onEdit: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth()) {
         // Timeline dot and line
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -110,11 +127,17 @@ private fun CareNoteItem(note: CareNote) {
                         fontWeight = FontWeight.Bold,
                         color = KalazaRed
                     )
-                    Text(
-                        text = note.timestamp.format(DateTimeFormatter.ofPattern("dd MMM, HH:mm")),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = note.timestamp.format(DateTimeFormatter.ofPattern("dd MMM, HH:mm")),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit note",
+                                tint = KalazaRed, modifier = Modifier.size(16.dp))
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -128,14 +151,16 @@ private fun CareNoteItem(note: CareNote) {
 
 @Composable
 private fun AddCareNoteDialog(
+    title: String = "Add Care Note",
+    initialText: String = "",
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
-    var noteText by remember { mutableStateOf("") }
+    var noteText by remember { mutableStateOf(initialText) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Care Note") },
+        title = { Text(title) },
         text = {
             OutlinedTextField(
                 value = noteText,

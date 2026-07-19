@@ -56,7 +56,11 @@ fun TimeOfDayField(
     ) {
         OutlinedTextField(
             value = hourText,
-            onValueChange = { hourText = it.filter { c -> c.isDigit() }.take(2); emit() },
+            onValueChange = { input ->
+                val digits = input.filter { c -> c.isDigit() }.take(2)
+                hourText = digits.toIntOrNull()?.let { when { it > 12 -> "12"; it < 1 -> "1"; else -> digits } } ?: digits
+                emit()
+            },
             label = { Text("HH") },
             modifier = Modifier.width(72.dp),
             singleLine = true,
@@ -65,7 +69,11 @@ fun TimeOfDayField(
         Text(":", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(
             value = minuteText,
-            onValueChange = { minuteText = it.filter { c -> c.isDigit() }.take(2); emit() },
+            onValueChange = { input ->
+                val digits = input.filter { c -> c.isDigit() }.take(2)
+                minuteText = digits.toIntOrNull()?.let { if (it > 59) "59" else digits } ?: digits
+                emit()
+            },
             label = { Text("MM") },
             modifier = Modifier.width(72.dp),
             singleLine = true,
@@ -76,13 +84,21 @@ fun TimeOfDayField(
             selected = !isPm,
             onClick = { isPm = false; emit() },
             label = { Text("AM") },
-            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = KalazaRed.copy(alpha = 0.15f)),
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = KalazaRed,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                labelColor = MaterialTheme.colorScheme.onSurface,
+            ),
         )
         FilterChip(
             selected = isPm,
             onClick = { isPm = true; emit() },
             label = { Text("PM") },
-            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = KalazaRed.copy(alpha = 0.15f)),
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = KalazaRed,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                labelColor = MaterialTheme.colorScheme.onSurface,
+            ),
         )
     }
 }

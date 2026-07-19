@@ -143,6 +143,7 @@ class PatientViewModel(
             if (original.emergencyContact != updated.emergencyContact) changes.add("Emergency Contact" to (original.emergencyContact to updated.emergencyContact))
             if (original.emergencyPhone != updated.emergencyPhone) changes.add("Emergency Phone" to (original.emergencyPhone to updated.emergencyPhone))
             if (original.primaryDiagnosis != updated.primaryDiagnosis) changes.add("Primary Diagnosis" to (original.primaryDiagnosis to updated.primaryDiagnosis))
+            if (original.admissionDate != updated.admissionDate) changes.add("Admission Date" to (original.admissionDate.toString() to updated.admissionDate.toString()))
             if (changes.isEmpty()) { onResult(false, "No changes detected"); return }
             changes.forEach { (field, vals) ->
                 approvalRepo.submitRequest(ApprovalRequest(
@@ -158,7 +159,7 @@ class PatientViewModel(
             }
             notificationRepo.add(AppNotification(
                 id = "n_${System.currentTimeMillis()}",
-                recipientRole = UserRole.ADMIN,
+                recipientRole = UserRole.SUPER_ADMIN,
                 type = NotificationType.APPROVAL_REQUESTED,
                 title = "New Edit Request",
                 message = "${SessionManager.getCurrentStaffName()} requested ${changes.size} change(s) to ${original.name}",
@@ -187,13 +188,73 @@ class PatientViewModel(
 // Vitals
 // ─────────────────────────────────────────────────────────────────────────────
 
-class VitalsViewModel(private val repo: VitalsRepository) : ViewModel() {
+class VitalsViewModel(
+    private val repo: VitalsRepository,
+    private val approvalRepo: ApprovalRepository,
+    private val auditRepo: AuditRepository,
+    private val notificationRepo: NotificationRepository,
+    private val patientRepo: PatientRepository,
+) : ViewModel() {
     private val _vitals = MutableStateFlow<List<VitalRecord>>(emptyList())
     val vitals: StateFlow<List<VitalRecord>> = _vitals.asStateFlow()
 
     fun load(patientId: String) { _vitals.value = repo.getVitalsForPatient(patientId) }
     fun addVital(record: VitalRecord) { repo.addVital(record); load(record.patientId) }
-    fun updateVital(record: VitalRecord) { repo.updateVital(record); load(record.patientId) }
+
+    // Edits within 24h of the original entry apply directly for every role (mistakes
+    // happen, all changes are logged); after 24h, non-admin edits go through approval.
+    fun updateVital(original: VitalRecord, updated: VitalRecord, onResult: (Boolean, String) -> Unit) {
+        val withinGraceWindow = LocalDateTime.of(original.date, original.time).plusHours(24).isAfter(LocalDateTime.now())
+        if (SessionManager.isAdmin() || withinGraceWindow) {
+            repo.updateVital(updated)
+            auditRepo.addLog(AuditLogEntry(
+                id = "al_${System.currentTimeMillis()}",
+                action = "Vitals Record Updated",
+                performedById = SessionManager.getCurrentStaffId(),
+                performedByName = SessionManager.getCurrentStaffName(),
+                targetPatientId = updated.patientId,
+                targetPatientName = patientRepo.getPatientById(updated.patientId)?.name ?: "",
+                details = if (SessionManager.isAdmin()) "Vitals record updated directly by Admin"
+                          else "Vitals record edited within 24h of entry",
+                iconName = "edit",
+            ))
+            load(updated.patientId)
+            onResult(true, "Vitals updated")
+            return
+        }
+        val changes = mutableListOf<Pair<String, Pair<String, String>>>()
+        if (original.pulse != updated.pulse) changes.add("Pulse" to (original.pulse to updated.pulse))
+        if (original.bp != updated.bp) changes.add("BP" to (original.bp to updated.bp))
+        if (original.spo2 != updated.spo2) changes.add("SpO2" to (original.spo2 to updated.spo2))
+        if (original.temperature != updated.temperature) changes.add("Temperature" to (original.temperature to updated.temperature))
+        if (original.sugarFasting != updated.sugarFasting) changes.add("Sugar (Fasting)" to (original.sugarFasting to updated.sugarFasting))
+        if (original.sugarPP != updated.sugarPP) changes.add("Sugar (PP)" to (original.sugarPP to updated.sugarPP))
+        if (changes.isEmpty()) { onResult(false, "No changes detected"); return }
+        val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
+        changes.forEach { (field, vals) ->
+            approvalRepo.submitRequest(ApprovalRequest(
+                id = "ar_${System.currentTimeMillis()}_${field.hashCode()}",
+                entityType = ApprovalEntityType.VITAL,
+                entityId = original.id,
+                patientId = original.patientId,
+                patientName = patientName,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+                fieldChanged = field,
+                oldValue = vals.first,
+                newValue = vals.second,
+            ))
+        }
+        notificationRepo.add(AppNotification(
+            id = "n_${System.currentTimeMillis()}",
+            recipientRole = UserRole.SUPER_ADMIN,
+            type = NotificationType.APPROVAL_REQUESTED,
+            title = "New Edit Request",
+            message = "${SessionManager.getCurrentStaffName()} requested ${changes.size} change(s) to a vitals record for $patientName",
+            targetRoute = "approval",
+        ))
+        onResult(true, "${changes.size} edit request(s) submitted for admin approval (entry is more than 24h old)")
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,9 +320,15 @@ class MarViewModel(
         onResult(warning)
     }
 
-    // CHANGE 5: edit existing medication entry (admin only)
+    // CHANGE 5: edit existing medication entry (SuperAdmin only)
     fun updateMedication(entry: MedicationEntry) {
         repo.updateMedication(entry)
+        load(entry.patientId, entry.scheduledDate)
+    }
+
+    // Add/edit/delete of MAR entries is SuperAdmin-only (enforced in the UI too).
+    fun deleteMedication(entry: MedicationEntry) {
+        repo.deleteMedication(entry.id)
         load(entry.patientId, entry.scheduledDate)
     }
 }
@@ -373,13 +440,70 @@ class NotificationViewModel(private val repo: NotificationRepository) : ViewMode
 // Utility
 // ─────────────────────────────────────────────────────────────────────────────
 
-class UtilityViewModel(private val repo: UtilityRepository) : ViewModel() {
+class UtilityViewModel(
+    private val repo: UtilityRepository,
+    private val approvalRepo: ApprovalRepository,
+    private val auditRepo: AuditRepository,
+    private val notificationRepo: NotificationRepository,
+    private val patientRepo: PatientRepository,
+) : ViewModel() {
     private val _records = MutableStateFlow<List<UtilityRecord>>(emptyList())
     val records: StateFlow<List<UtilityRecord>> = _records.asStateFlow()
     private val _items = MutableStateFlow<List<UtilityItem>>(emptyList())
     val items: StateFlow<List<UtilityItem>> = _items.asStateFlow()
     fun load(patientId: String) { _records.value = repo.getUtilityForPatient(patientId); _items.value = repo.getUtilityItems() }
     fun addRecord(record: UtilityRecord) { repo.addUtilityRecord(record.copy(id = "u_${System.currentTimeMillis()}")); load(record.patientId) }
+
+    // Same 24h-grace-then-approval policy as Vitals.
+    fun updateRecord(original: UtilityRecord, updated: UtilityRecord, onResult: (Boolean, String) -> Unit) {
+        val withinGraceWindow = LocalDateTime.of(original.date, original.time).plusHours(24).isAfter(LocalDateTime.now())
+        if (SessionManager.isAdmin() || withinGraceWindow) {
+            repo.updateUtilityRecord(updated)
+            auditRepo.addLog(AuditLogEntry(
+                id = "al_${System.currentTimeMillis()}",
+                action = "Utility Record Updated",
+                performedById = SessionManager.getCurrentStaffId(),
+                performedByName = SessionManager.getCurrentStaffName(),
+                targetPatientId = updated.patientId,
+                targetPatientName = patientRepo.getPatientById(updated.patientId)?.name ?: "",
+                details = if (SessionManager.isAdmin()) "Utility record updated directly by Admin"
+                          else "Utility record edited within 24h of entry",
+                iconName = "edit",
+            ))
+            load(updated.patientId)
+            onResult(true, "Utility record updated")
+            return
+        }
+        val changes = mutableListOf<Pair<String, Pair<String, String>>>()
+        if (original.issuedToCaregiver != updated.issuedToCaregiver) changes.add("Issued To" to (original.issuedToCaregiver to updated.issuedToCaregiver))
+        if (original.issuedBySupervisor != updated.issuedBySupervisor) changes.add("Issued By" to (original.issuedBySupervisor to updated.issuedBySupervisor))
+        if (original.checkedBy != updated.checkedBy) changes.add("Checked By" to (original.checkedBy to updated.checkedBy))
+        if (changes.isEmpty()) { onResult(false, "No changes detected"); return }
+        val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
+        changes.forEach { (field, vals) ->
+            approvalRepo.submitRequest(ApprovalRequest(
+                id = "ar_${System.currentTimeMillis()}_${field.hashCode()}",
+                entityType = ApprovalEntityType.UTILITY,
+                entityId = original.id,
+                patientId = original.patientId,
+                patientName = patientName,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+                fieldChanged = field,
+                oldValue = vals.first,
+                newValue = vals.second,
+            ))
+        }
+        notificationRepo.add(AppNotification(
+            id = "n_${System.currentTimeMillis()}",
+            recipientRole = UserRole.SUPER_ADMIN,
+            type = NotificationType.APPROVAL_REQUESTED,
+            title = "New Edit Request",
+            message = "${SessionManager.getCurrentStaffName()} requested ${changes.size} change(s) to a utility record for $patientName",
+            targetRoute = "approval",
+        ))
+        onResult(true, "${changes.size} edit request(s) submitted for admin approval (entry is more than 24h old)")
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,7 +567,7 @@ class DoctorVisitViewModel(
             }
             notificationRepo.add(AppNotification(
                 id = "n_${System.currentTimeMillis()}",
-                recipientRole = UserRole.ADMIN,
+                recipientRole = UserRole.SUPER_ADMIN,
                 type = NotificationType.APPROVAL_REQUESTED,
                 title = "New Edit Request",
                 message = "${SessionManager.getCurrentStaffName()} requested ${changes.size} change(s) to a doctor visit for $patientName",
@@ -459,13 +583,62 @@ class DoctorVisitViewModel(
         repo.updateVisit(visit.copy(isConfirmed = true, isArchived = shouldArchive))
         load(visit.patientId)
     }
+
+    // Delete always goes through approval for non-admin; SuperAdmin deletes directly.
+    fun requestDelete(visit: DoctorVisit, onResult: (Boolean, String) -> Unit) {
+        val patientName = patientRepo.getPatientById(visit.patientId)?.name ?: ""
+        if (SessionManager.isAdmin()) {
+            repo.deleteVisit(visit.id)
+            auditRepo.addLog(AuditLogEntry(
+                id = "al_${System.currentTimeMillis()}",
+                action = "Doctor Visit Deleted",
+                performedById = SessionManager.getCurrentStaffId(),
+                performedByName = SessionManager.getCurrentStaffName(),
+                targetPatientId = visit.patientId,
+                targetPatientName = patientName,
+                details = "Doctor visit with ${visit.doctorName} deleted directly by Admin",
+                iconName = "delete",
+            ))
+            load(visit.patientId)
+            onResult(true, "Visit deleted")
+        } else {
+            approvalRepo.submitRequest(ApprovalRequest(
+                id = "ar_${System.currentTimeMillis()}",
+                entityType = ApprovalEntityType.DOCTOR_VISIT,
+                entityId = visit.id,
+                action = ApprovalAction.DELETE,
+                patientId = visit.patientId,
+                patientName = patientName,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+                fieldChanged = "Doctor Visit",
+                oldValue = "${visit.doctorName} — ${visit.date}",
+                newValue = "",
+            ))
+            notificationRepo.add(AppNotification(
+                id = "n_${System.currentTimeMillis()}",
+                recipientRole = UserRole.SUPER_ADMIN,
+                type = NotificationType.APPROVAL_REQUESTED,
+                title = "New Delete Request",
+                message = "${SessionManager.getCurrentStaffName()} requested to delete a doctor visit for $patientName",
+                targetRoute = "approval",
+            ))
+            onResult(true, "Delete request submitted for admin approval")
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Care Notes
 // ─────────────────────────────────────────────────────────────────────────────
 
-class CareNoteViewModel(private val repo: CareNoteRepository) : ViewModel() {
+class CareNoteViewModel(
+    private val repo: CareNoteRepository,
+    private val approvalRepo: ApprovalRepository,
+    private val auditRepo: AuditRepository,
+    private val notificationRepo: NotificationRepository,
+    private val patientRepo: PatientRepository,
+) : ViewModel() {
     private val _notes = MutableStateFlow<List<CareNote>>(emptyList())
     val notes: StateFlow<List<CareNote>> = _notes.asStateFlow()
     fun load(patientId: String) { _notes.value = repo.getNotesForPatient(patientId) }
@@ -479,6 +652,51 @@ class CareNoteViewModel(private val repo: CareNoteRepository) : ViewModel() {
         ))
         load(patientId)
     }
+
+    // Same 24h-grace-then-approval policy as Vitals/Utility.
+    fun updateNote(original: CareNote, newText: String, onResult: (Boolean, String) -> Unit) {
+        if (original.note == newText) { onResult(false, "No changes detected"); return }
+        val withinGraceWindow = original.timestamp.plusHours(24).isAfter(LocalDateTime.now())
+        if (SessionManager.isAdmin() || withinGraceWindow) {
+            repo.updateNote(original.copy(note = newText))
+            auditRepo.addLog(AuditLogEntry(
+                id = "al_${System.currentTimeMillis()}",
+                action = "Care Note Updated",
+                performedById = SessionManager.getCurrentStaffId(),
+                performedByName = SessionManager.getCurrentStaffName(),
+                targetPatientId = original.patientId,
+                targetPatientName = patientRepo.getPatientById(original.patientId)?.name ?: "",
+                details = if (SessionManager.isAdmin()) "Care note updated directly by Admin"
+                          else "Care note edited within 24h of entry",
+                iconName = "edit",
+            ))
+            load(original.patientId)
+            onResult(true, "Note updated")
+            return
+        }
+        val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
+        approvalRepo.submitRequest(ApprovalRequest(
+            id = "ar_${System.currentTimeMillis()}",
+            entityType = ApprovalEntityType.CARE_NOTE,
+            entityId = original.id,
+            patientId = original.patientId,
+            patientName = patientName,
+            requestedById = SessionManager.getCurrentStaffId(),
+            requestedByName = SessionManager.getCurrentStaffName(),
+            fieldChanged = "Care Note",
+            oldValue = original.note,
+            newValue = newText,
+        ))
+        notificationRepo.add(AppNotification(
+            id = "n_${System.currentTimeMillis()}",
+            recipientRole = UserRole.SUPER_ADMIN,
+            type = NotificationType.APPROVAL_REQUESTED,
+            title = "New Edit Request",
+            message = "${SessionManager.getCurrentStaffName()} requested a change to a care note for $patientName",
+            targetRoute = "approval",
+        ))
+        onResult(true, "Edit request submitted for admin approval (entry is more than 24h old)")
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -491,6 +709,9 @@ class ApprovalViewModel(
     private val auditRepo: AuditRepository,
     private val notificationRepo: NotificationRepository,
     private val doctorVisitRepo: DoctorVisitRepository,
+    private val vitalsRepo: VitalsRepository,
+    private val utilityRepo: UtilityRepository,
+    private val careNoteRepo: CareNoteRepository,
 ) : ViewModel() {
     private val _requests = MutableStateFlow<List<ApprovalRequest>>(emptyList())
     val requests: StateFlow<List<ApprovalRequest>> = _requests.asStateFlow()
@@ -506,8 +727,24 @@ class ApprovalViewModel(
                 if (patient != null) patientRepo.updatePatient(applyFieldChange(patient, request.fieldChanged, request.newValue))
             }
             ApprovalEntityType.DOCTOR_VISIT -> {
-                val visit = doctorVisitRepo.getVisitById(request.entityId)
-                if (visit != null) doctorVisitRepo.updateVisit(applyDoctorVisitFieldChange(visit, request.fieldChanged, request.newValue))
+                if (request.action == ApprovalAction.DELETE) {
+                    doctorVisitRepo.deleteVisit(request.entityId)
+                } else {
+                    val visit = doctorVisitRepo.getVisitById(request.entityId)
+                    if (visit != null) doctorVisitRepo.updateVisit(applyDoctorVisitFieldChange(visit, request.fieldChanged, request.newValue))
+                }
+            }
+            ApprovalEntityType.VITAL -> {
+                val vital = vitalsRepo.getVitalById(request.entityId)
+                if (vital != null) vitalsRepo.updateVital(applyVitalFieldChange(vital, request.fieldChanged, request.newValue))
+            }
+            ApprovalEntityType.UTILITY -> {
+                val record = utilityRepo.getUtilityRecordById(request.entityId)
+                if (record != null) utilityRepo.updateUtilityRecord(applyUtilityFieldChange(record, request.fieldChanged, request.newValue))
+            }
+            ApprovalEntityType.CARE_NOTE -> {
+                val note = careNoteRepo.getNoteById(request.entityId)
+                if (note != null) careNoteRepo.updateNote(note.copy(note = request.newValue))
             }
         }
         auditRepo.addLog(AuditLogEntry(
@@ -566,6 +803,7 @@ class ApprovalViewModel(
         "Emergency Contact" -> patient.copy(emergencyContact = newValue)
         "Emergency Phone"   -> patient.copy(emergencyPhone = newValue)
         "Primary Diagnosis" -> patient.copy(primaryDiagnosis = newValue)
+        "Admission Date"    -> patient.copy(admissionDate = runCatching { LocalDate.parse(newValue) }.getOrDefault(patient.admissionDate))
         else                -> patient
     }
 
@@ -577,6 +815,23 @@ class ApprovalViewModel(
         "Next Visit Date"       -> visit.copy(nextVisitDate = newValue.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() })
         "Prescription Changes"  -> visit.copy(prescriptionChanges = newValue)
         else                    -> visit
+    }
+
+    private fun applyVitalFieldChange(record: VitalRecord, field: String, newValue: String): VitalRecord = when (field) {
+        "Pulse"           -> record.copy(pulse = newValue)
+        "BP"              -> record.copy(bp = newValue)
+        "SpO2"            -> record.copy(spo2 = newValue)
+        "Temperature"     -> record.copy(temperature = newValue)
+        "Sugar (Fasting)" -> record.copy(sugarFasting = newValue)
+        "Sugar (PP)"      -> record.copy(sugarPP = newValue)
+        else              -> record
+    }
+
+    private fun applyUtilityFieldChange(record: UtilityRecord, field: String, newValue: String): UtilityRecord = when (field) {
+        "Issued To"  -> record.copy(issuedToCaregiver = newValue)
+        "Issued By"  -> record.copy(issuedBySupervisor = newValue)
+        "Checked By" -> record.copy(checkedBy = newValue)
+        else         -> record
     }
 }
 
@@ -625,27 +880,45 @@ data class SummaryStats(
     val pendingApprovals: Int = 0,
 )
 
+data class PatientRangeSummary(
+    val patient: Patient,
+    val vitals: List<VitalRecord>,
+    val medications: List<MedicationEntry>,
+    val utility: List<UtilityRecord>,
+    val visits: List<DoctorVisit>,
+    val notes: List<CareNote>,
+)
+
 class SummaryViewModel(
     private val medRepo: MedicationRepository,
     private val vitalsRepo: VitalsRepository,
     private val approvalRepo: ApprovalRepository,
     private val patientRepo: PatientRepository,
     private val utilityRepo: UtilityRepository,
+    private val doctorVisitRepo: DoctorVisitRepository,
+    private val careNoteRepo: CareNoteRepository,
 ) : ViewModel() {
     private val _stats       = MutableStateFlow(SummaryStats())
     val stats: StateFlow<SummaryStats> = _stats.asStateFlow()
-    private val _selectedDate = MutableStateFlow(LocalDate.now())
-    val selectedDate: StateFlow<LocalDate> = _selectedDate.asStateFlow()
+    private val _startDate = MutableStateFlow(LocalDate.now())
+    val startDate: StateFlow<LocalDate> = _startDate.asStateFlow()
+    private val _endDate = MutableStateFlow(LocalDate.now())
+    val endDate: StateFlow<LocalDate> = _endDate.asStateFlow()
     private val _patients    = MutableStateFlow<List<Patient>>(emptyList())
     val patients: StateFlow<List<Patient>> = _patients.asStateFlow()
-    init { load(LocalDate.now()) }
-    fun load(date: LocalDate) {
-        _selectedDate.value = date
+
+    init { load(LocalDate.now(), LocalDate.now()) }
+
+    fun load(start: LocalDate, end: LocalDate) {
+        val from = if (start.isAfter(end)) end else start
+        val to   = if (start.isAfter(end)) start else end
+        _startDate.value = from
+        _endDate.value = to
         val pts = patientRepo.getAllPatients()
         _patients.value = pts
-        val allMeds    = pts.flatMap { medRepo.getMedicationsForPatient(it.id, date) }
-        val allVitals  = pts.flatMap { vitalsRepo.getVitalsForDate(it.id, date) }
-        val allUtility = pts.sumOf { utilityRepo.getUtilityForPatient(it.id).count { u -> u.date == date } }
+        val allMeds    = pts.flatMap { medRepo.getMedicationsForPatient(it.id).filter { m -> m.scheduledDate in from..to } }
+        val allVitals  = pts.flatMap { vitalsRepo.getVitalsForPatient(it.id).filter { v -> v.date in from..to } }
+        val allUtility = pts.sumOf { utilityRepo.getUtilityForPatient(it.id).count { u -> u.date in from..to } }
         _stats.value = SummaryStats(
             vitalsRecorded   = allVitals.size,
             medsAdministered = allMeds.count { it.status == MedStatus.ADMINISTERED },
@@ -653,6 +926,70 @@ class SummaryViewModel(
             utilityLogs      = allUtility,
             pendingApprovals = approvalRepo.getPendingRequests().size
         )
+    }
+
+    /** Full per-patient breakdown for the currently selected range, for the xlsx export. */
+    fun buildRangeReport(): List<PatientRangeSummary> {
+        val from = _startDate.value
+        val to = _endDate.value
+        return _patients.value.map { p ->
+            PatientRangeSummary(
+                patient = p,
+                vitals = vitalsRepo.getVitalsForPatient(p.id).filter { it.date in from..to },
+                medications = medRepo.getMedicationsForPatient(p.id).filter { it.scheduledDate in from..to },
+                utility = utilityRepo.getUtilityForPatient(p.id).filter { it.date in from..to },
+                visits = doctorVisitRepo.getVisitsForPatient(p.id).filter { it.date in from..to },
+                notes = careNoteRepo.getNotesForPatient(p.id).filter { it.timestamp.toLocalDate() in from..to },
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Photo Audit — the only screen the restricted, photo-audit-only Admin role sees
+// ─────────────────────────────────────────────────────────────────────────────
+
+data class PhotoAuditEntry(
+    val medicationEntryId: String,
+    val patientName: String,
+    val medicineName: String,
+    val kind: String,       // "Allotment" or "Administration"
+    val staffName: String,
+    val photoUrl: String,
+    val capturedAt: LocalDateTime,
+    val expiresAt: LocalDateTime,
+)
+
+class PhotoAuditViewModel(
+    private val medRepo: MedicationRepository,
+    private val patientRepo: PatientRepository,
+) : ViewModel() {
+    private val _entries = MutableStateFlow<List<PhotoAuditEntry>>(emptyList())
+    val entries: StateFlow<List<PhotoAuditEntry>> = _entries.asStateFlow()
+
+    init { load() }
+
+    fun load() {
+        val patients = patientRepo.getAllPatients(includeArchived = true).associateBy { it.id }
+        val result = mutableListOf<PhotoAuditEntry>()
+        medRepo.getAllMedications().forEach { entry ->
+            val patientName = patients[entry.patientId]?.name ?: "Unknown"
+            if (entry.allotmentPhotoUrl.isNotBlank()) {
+                result += PhotoAuditEntry(
+                    entry.id, patientName, entry.medicineName, "Allotment",
+                    entry.allottedByName, entry.allotmentPhotoUrl,
+                    entry.allottedAt ?: LocalDateTime.now(), entry.allotmentPhotoExpiresAt ?: LocalDateTime.now()
+                )
+            }
+            if (entry.administeredPhotoUrl.isNotBlank()) {
+                result += PhotoAuditEntry(
+                    entry.id, patientName, entry.medicineName, "Administration",
+                    entry.administeredBy, entry.administeredPhotoUrl,
+                    entry.administeredAt ?: LocalDateTime.now(), entry.administeredPhotoExpiresAt ?: LocalDateTime.now()
+                )
+            }
+        }
+        _entries.value = result.sortedByDescending { it.capturedAt }
     }
 }
 
@@ -679,17 +1016,18 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(LoginViewModel::class.java)       -> LoginViewModel(authRepo) as T
         modelClass.isAssignableFrom(DashboardViewModel::class.java)   -> DashboardViewModel(patientRepo, medRepo, approvalRepo) as T
         modelClass.isAssignableFrom(PatientViewModel::class.java)     -> PatientViewModel(patientRepo, approvalRepo, auditRepo, notificationRepo) as T
-        modelClass.isAssignableFrom(VitalsViewModel::class.java)      -> VitalsViewModel(vitalsRepo) as T
+        modelClass.isAssignableFrom(VitalsViewModel::class.java)      -> VitalsViewModel(vitalsRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(MarViewModel::class.java)         -> MarViewModel(medRepo, allotmentRequestRepo, patientRepo, notificationRepo) as T
         modelClass.isAssignableFrom(MedicineViewModel::class.java)    -> MedicineViewModel(medRepo, patientRepo, allotmentRequestRepo, auditRepo, notificationRepo) as T
-        modelClass.isAssignableFrom(UtilityViewModel::class.java)     -> UtilityViewModel(utilityRepo) as T
+        modelClass.isAssignableFrom(UtilityViewModel::class.java)     -> UtilityViewModel(utilityRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(DoctorVisitViewModel::class.java) -> DoctorVisitViewModel(doctorVisitRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
-        modelClass.isAssignableFrom(CareNoteViewModel::class.java)    -> CareNoteViewModel(careNoteRepo) as T
-        modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo) as T
+        modelClass.isAssignableFrom(CareNoteViewModel::class.java)    -> CareNoteViewModel(careNoteRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
+        modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo, vitalsRepo, utilityRepo, careNoteRepo) as T
         modelClass.isAssignableFrom(AuditLogViewModel::class.java)    -> AuditLogViewModel(auditRepo) as T
         modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo) as T
-        modelClass.isAssignableFrom(SummaryViewModel::class.java)     -> SummaryViewModel(medRepo, vitalsRepo, approvalRepo, patientRepo, utilityRepo) as T
+        modelClass.isAssignableFrom(SummaryViewModel::class.java)     -> SummaryViewModel(medRepo, vitalsRepo, approvalRepo, patientRepo, utilityRepo, doctorVisitRepo, careNoteRepo) as T
         modelClass.isAssignableFrom(NotificationViewModel::class.java)-> NotificationViewModel(notificationRepo) as T
+        modelClass.isAssignableFrom(PhotoAuditViewModel::class.java)  -> PhotoAuditViewModel(medRepo, patientRepo) as T
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }
 }

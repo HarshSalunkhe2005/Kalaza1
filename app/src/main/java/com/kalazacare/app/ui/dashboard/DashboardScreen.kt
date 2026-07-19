@@ -41,7 +41,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             KalazaTopBar(
-                title = "Dashboard",
+                title = SessionManager.getCurrentStaffName(),
                 onLogout = onLogout,
                 actions = {
                     NotificationBell(count = unreadNotifications, onClick = onNotificationsClick)

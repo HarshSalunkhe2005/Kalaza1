@@ -377,6 +377,8 @@ private fun VitalsTabContent(
     patientRoom: String,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<com.kalazacare.app.data.model.VitalRecord?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -392,7 +394,7 @@ private fun VitalsTabContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            VitalsTable(vitals = vitals)
+            VitalsTable(vitals = vitals, onEdit = { editTarget = it })
         }
 
         // FAB
@@ -418,6 +420,75 @@ private fun VitalsTabContent(
             }
         )
     }
+
+    editTarget?.let { original ->
+        EditVitalsDialog(
+            original = original,
+            onDismiss = { editTarget = null },
+            onSave = { updated ->
+                vitalsVm.updateVital(original, updated) { _, message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                editTarget = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun EditVitalsDialog(
+    original: com.kalazacare.app.data.model.VitalRecord,
+    onDismiss: () -> Unit,
+    onSave: (com.kalazacare.app.data.model.VitalRecord) -> Unit,
+) {
+    val bpParts = original.bp.split("/")
+    var pulse by remember { mutableStateOf(original.pulse) }
+    var bpSystolic by remember { mutableStateOf(bpParts.getOrElse(0) { "" }) }
+    var bpDiastolic by remember { mutableStateOf(bpParts.getOrElse(1) { "" }) }
+    var spo2 by remember { mutableStateOf(original.spo2) }
+    var temp by remember { mutableStateOf(original.temperature) }
+    var sugarFasting by remember { mutableStateOf(original.sugarFasting) }
+    var sugarPP by remember { mutableStateOf(original.sugarPP) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Vitals", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = pulse, onValueChange = { pulse = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Pulse (bpm)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = bpSystolic, onValueChange = { bpSystolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Sys") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = bpDiastolic, onValueChange = { bpDiastolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Dia") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+                OutlinedTextField(value = spo2, onValueChange = { spo2 = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("SpO2 (%)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(value = temp, onValueChange = { input -> temp = input.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Temperature (°F)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = sugarFasting, onValueChange = { sugarFasting = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar Fast") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = sugarPP, onValueChange = { sugarPP = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar PP") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        original.copy(
+                            pulse = pulse,
+                            bp = "$bpSystolic/$bpDiastolic",
+                            spo2 = spo2,
+                            temperature = temp,
+                            sugarFasting = sugarFasting,
+                            sugarPP = sugarPP,
+                        )
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -509,7 +580,8 @@ private fun MarTabContent(
             medications = medications,
             onMarkAdministered = { id -> administerTargetId = id },
             onRequestAllotment = { entry -> marVm.requestAllotment(entry) },
-            onEditMedication   = { updated -> marVm.updateMedication(updated) }
+            onEditMedication   = { updated -> marVm.updateMedication(updated) },
+            onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
         )
 
         // Only Admin can add medications
@@ -616,9 +688,11 @@ private fun UtilityTabContent(
     utilityVm: UtilityViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<com.kalazacare.app.data.model.UtilityRecord?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
-        UtilityTable(records = records, items = items)
+        UtilityTable(records = records, items = items, onEdit = { editTarget = it })
 
         FloatingActionButton(
             onClick = { showAddDialog = true },
@@ -643,6 +717,53 @@ private fun UtilityTabContent(
             }
         )
     }
+
+    editTarget?.let { original ->
+        EditUtilityDialog(
+            original = original,
+            onDismiss = { editTarget = null },
+            onSave = { updated ->
+                utilityVm.updateRecord(original, updated) { _, message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                editTarget = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun EditUtilityDialog(
+    original: com.kalazacare.app.data.model.UtilityRecord,
+    onDismiss: () -> Unit,
+    onSave: (com.kalazacare.app.data.model.UtilityRecord) -> Unit,
+) {
+    var issuedTo by remember { mutableStateOf(original.issuedToCaregiver) }
+    var issuedBy by remember { mutableStateOf(original.issuedBySupervisor) }
+    var checkedBy by remember { mutableStateOf(original.checkedBy) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Utility Record", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = issuedTo, onValueChange = { issuedTo = it }, label = { Text("Issued To") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = issuedBy, onValueChange = { issuedBy = it }, label = { Text("Issued By") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = checkedBy, onValueChange = { checkedBy = it }, label = { Text("Checked By") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(original.copy(issuedToCaregiver = issuedTo, issuedBySupervisor = issuedBy, checkedBy = checkedBy))
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
