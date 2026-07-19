@@ -1,5 +1,6 @@
 package com.kalazacare.app.ui.patient
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.DoctorVisit
@@ -34,6 +36,7 @@ fun DoctorVisitsTab(
     var showAddDialog  by remember { mutableStateOf(false) }
     var editTarget     by remember { mutableStateOf<DoctorVisit?>(null) }
     var selectedTab    by remember { mutableStateOf(0) }   // 0=Upcoming, 1=Archived
+    val context = LocalContext.current
 
     val upcoming = visits.filter { !it.isArchived }.sortedBy { it.date }
     val archived = visits.filter { it.isArchived  }.sortedByDescending { it.date }
@@ -113,7 +116,12 @@ fun DoctorVisitsTab(
             initial = v,
             patientId = patientId,
             onDismiss = { editTarget = null },
-            onSave = { updated -> viewModel.updateVisit(updated); editTarget = null }
+            onSave = { updated ->
+                viewModel.updateVisit(v, updated) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+                editTarget = null
+            }
         )
     }
 }

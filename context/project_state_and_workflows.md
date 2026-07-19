@@ -1,7 +1,7 @@
 # Kalaza Care - Project State & Workflows
 
 ## Overview
-Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Admins, regular Staff, and Medicine Staff, with an intricate approval queue for staff-made edits and a two-checkpoint (allot → administer) medication workflow.
+Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Admins, regular Staff, and Supervisor, with an intricate approval queue for staff-made edits and a two-checkpoint (allot → administer) medication workflow.
 
 ## Technology Stack
 - **Platform:** Android (Min SDK 24, Target SDK 34)
@@ -21,7 +21,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - **Login is by Name, not Email.** The login screen asks for the staff member's Name; `AuthRepository.login` matches `Staff.name` case-insensitively. `Staff.email` still exists as a separate contact-info field (shown in Config), it's just no longer the login credential.
 
 ### 2. Navigation & UI Shell
-- **Bottom Navigation Bar:** Context-aware based on the logged-in user. (Admin sees: Patients, Approvals, Audit Log, Config, Summary. Medicine Staff sees: Patients, Medicine. Regular Staff sees: Patients).
+- **Bottom Navigation Bar:** Context-aware based on the logged-in user. (Admin sees: Patients, Approvals, Audit Log, Config, Summary. Supervisor sees: Patients, Medicine. Regular Staff sees: Patients).
 - **Top App Bar:** Customized to display the brand's red stripe (`KalazaRed`), the app logo, dynamic screen titles, and a clickable Notification Bell.
 
 ### 3. Patient Management
@@ -29,11 +29,11 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - **Patient Profile:**
   - **Details Tab:** View/Edit patient demographics and medical history. Staff edits go to the Approval Queue. Admin edits save immediately and log to Audit.
   - **Vitals Tab:** Record and view daily vitals (BP, Heart Rate, Temp, SpO2).
-  - **MAR (Medication Administration Record) Tab:** Track scheduled medications. Overdue status is computed live from the scheduled time. Marking a dose "given" requires photo evidence, and shows whether the dose has been allotted yet; any staff can flag a "Request Allotment" if medicine-staff forgot.
+  - **MAR (Medication Administration Record) Tab:** Track scheduled medications. Overdue status is computed live from the scheduled time. Marking a dose "given" requires photo evidence, and shows whether the dose has been allotted yet; any staff can flag a "Request Allotment" if supervisor forgot.
   - **Utility Tab:** Log usage of medical utilities. Columns/fields are generated dynamically from whatever's configured in Config → Utility Items — adding a new item type there shows up here immediately, no code change needed.
   - **Doctor Visits Tab:** Log specific instructions and notes left by visiting doctors.
   - **Care Notes Tab:** Add general nursing/care notes for the patient.
-- **Medicine Tab (Medicine Staff only):** A facility-wide "rounds" view of every dose still awaiting allotment today, plus any pending allotment requests raised by regular staff. Allotting a dose requires photo evidence.
+- **Medicine Tab (Supervisor only):** A facility-wide "rounds" view of every dose still awaiting allotment today, plus any pending allotment requests raised by regular staff. Allotting a dose requires photo evidence.
 
 ### 4. Admin Workflows
 - **Approval Queue:** A dedicated screen where Admins can review, approve, or reject field-level changes requested by Staff. Approving applies the change directly to the Patient record (not just the request's status) and logs to Audit; rejecting also logs to Audit.
@@ -49,15 +49,30 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 
 ### 6. In-App Notification System
 - A real Notifications screen (bell icon → badge count → list), reachable from Dashboard and the Medicine tab.
-- Notifications are generated at the actual point of the event, not just seeded: a staff edit request notifies all Admins; an approval/rejection notifies the requester; a medicine-staff allotment request notifies all Medicine Staff; fulfilling one notifies the requester back. Tapping a notification marks it read and navigates to the relevant screen (Approval Queue, Medicine tab, or the specific patient's profile).
+- Notifications are generated at the actual point of the event, not just seeded: a staff edit request notifies all Admins; an approval/rejection notifies the requester; a supervisor allotment request notifies all Supervisors; fulfilling one notifies the requester back. Tapping a notification marks it read and navigates to the relevant screen (Approval Queue, Medicine tab, or the specific patient's profile).
 - This is in-app only — no real push yet (see Future Scope).
 
 ### 7. Input Validation
 - Phone numbers (staff phone, patient emergency phone) only accept digits as typed and require exactly 10 before the form can submit.
 - Patient age must be between 1 and 120.
 - Staff email is validated against a standard email pattern before Admin can add them.
-- Vitals fields (pulse, BP, SpO2, sugar) only accept digits; temperature accepts digits and a decimal point.
+- Vitals fields (pulse, BP, SpO2, sugar) only accept digits; temperature accepts digits and a decimal point. All vitals fields are also range-checked (e.g. pulse 30–220, SpO2 0–100, temperature 90–110°F) with inline error text — an out-of-range value blocks Save.
 - Utility quantities only accept digits.
+- Staff names are trimmed before being stored, and login matching trims and case-folds the name, so trailing/leading whitespace never blocks a valid login.
+- Medications can still be scheduled before a patient's admission date (there are legitimate backdating reasons), but doing so now shows a warning Toast instead of silently accepting it.
+
+### 8. Doctor Visit Editing & Generalized Approval
+- Doctor visits are now editable by any role. Admin edits apply directly (+ Audit Log entry); Staff/Supervisor edits generate field-level `ApprovalRequest`s just like Patient edits, routed to the same Approval Queue.
+- `ApprovalRequest` now carries an `entityType` (`PATIENT` or `DOCTOR_VISIT`) and `entityId` so `ApprovalViewModel.approve()` knows which repository to apply the diff to. The Approval Queue UI is unchanged — it already only cares about patient name / field / old-new value, which both entity types populate.
+- **Not yet covered by approval-gating:** Care Notes, Vitals, and Utility records still have no edit UI at all (add-only), so item 18 ("anything added should be editable with due approval") was scoped to Doctor Visits since that was explicitly called out as broken; extending edit+approval to those three would be a reasonable follow-up but is a larger net-new feature, not a bug fix.
+
+### 9. Time Input
+- All medication scheduling (Add Medication, Edit Medication) now uses a 12-hour HH:MM + AM/PM picker (`TimeOfDayField`) instead of raw 24-hour text fields, while still storing/computing everything internally as 24-hour `LocalTime`.
+
+### 10. Patient Profile Robustness
+- Editing a patient whose data hasn't finished loading (e.g. a stale/bad deep link) no longer risks a `NullPointerException` — Save is disabled and blocked with a "still loading" message until the patient record is actually present.
+- A patient profile for a non-existent ID now shows a "Patient not found" state with a Go Back button, instead of spinning forever indistinguishably from a real loading state.
+- `MedicationEntry`'s live-computed OVERDUE/PENDING status is now reversible in both directions — editing a dose's time to a later slot un-overdues it instead of leaving it stuck OVERDUE forever (previously only PENDING→OVERDUE was recomputed).
 
 ---
 
@@ -116,7 +131,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 3. To restore a staff member: Admin clicks "Activate" on the revoked card.
 4. To remove permanently: Admin clicks "Delete", destroying the record.
 5. The Admin's own card omits the "Revoke" button to prevent locking themselves out.
-6. When adding a staff member, Admin picks between the two operational roles — Regular Staff or Medicine Staff. (Admin accounts aren't created through this dialog.)
+6. When adding a staff member, Admin picks between the two operational roles — Regular Staff or Supervisor. (Admin accounts aren't created through this dialog.)
 
 ### Utility Item Workflow
 1. Admin adds/removes item types in Config → Utility Items (e.g. "Syringes").
@@ -124,14 +139,14 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 3. A `UtilityRecord` stores quantities as a `Map<UtilityItem.id, Int>` rather than fixed fields, which is what makes this possible.
 
 ### Notification Workflow
-1. A real event happens (staff submits an edit request, Admin approves/rejects one, a regular staff flags a forgotten allotment, Medicine Staff fulfills that flag).
+1. A real event happens (staff submits an edit request, Admin approves/rejects one, a regular staff flags a forgotten allotment, Supervisor fulfills that flag).
 2. The relevant ViewModel calls `NotificationRepository.add(...)` with either a specific `recipientStaffId` or a broadcast `recipientRole`.
 3. Whoever's affected sees the bell badge update (Dashboard and Medicine tab both show it) and can open the Notifications screen.
 4. Tapping a notification marks it read and navigates to its `targetRoute` (a static route like "approval"/"medicine", or "patient/{id}").
 
-### Medication Allotment Workflow (Medicine Staff)
-1. Medicine Staff opens the Medicine tab, showing every dose across all patients still awaiting allotment today, sorted by scheduled time.
-2. Medicine Staff taps "Allot" on a dose, takes a photo as evidence, and confirms.
+### Medication Allotment Workflow (Supervisor)
+1. Supervisor opens the Medicine tab, showing every dose across all patients still awaiting allotment today, sorted by scheduled time.
+2. Supervisor taps "Allot" on a dose, takes a photo as evidence, and confirms.
 3. `MedicationRepository.allotMedication` records who allotted it, when, and the photo evidence (mock URL + 48h expiry), and an Audit Log entry ("Medication Allotted") is created.
-4. Whoever ultimately administers the dose (Regular or Medicine Staff) marks it "Given" from the patient's MAR tab, which also requires a photo, independently of the allotment checkpoint.
-5. If Medicine Staff forgets to allot a dose ahead of time, any staff member can tap "Request Allotment" on that dose in the MAR tab. This creates an `AllotmentRequest` that surfaces at the top of the Medicine tab (standing in for a push notification) until a Medicine Staff member fulfills it.
+4. Whoever ultimately administers the dose (Regular or Supervisor) marks it "Given" from the patient's MAR tab, which also requires a photo, independently of the allotment checkpoint.
+5. If Supervisor forgets to allot a dose ahead of time, any staff member can tap "Request Allotment" on that dose in the MAR tab. This creates an `AllotmentRequest` that surfaces at the top of the Medicine tab (standing in for a push notification) until a Supervisor fulfills it.

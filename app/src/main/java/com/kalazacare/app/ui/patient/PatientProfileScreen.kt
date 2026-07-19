@@ -1,5 +1,6 @@
 package com.kalazacare.app.ui.patient
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -63,6 +64,7 @@ fun PatientProfileScreen(
     val doctorVisits by doctorVisitVm.visits.collectAsState()
     val careNotes by careNoteVm.notes.collectAsState()
 
+    var loadAttempted by remember { mutableStateOf(false) }
     LaunchedEffect(patientId) {
         patientVm.load(patientId)
         vitalsVm.load(patientId)
@@ -70,6 +72,7 @@ fun PatientProfileScreen(
         utilityVm.load(patientId)
         doctorVisitVm.load(patientId)
         careNoteVm.load(patientId)
+        loadAttempted = true
     }
 
     val tabs = listOf("Info", "Vitals", "MAR", "Utilities", "Visits", "Notes")
@@ -140,7 +143,19 @@ fun PatientProfileScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = KalazaRed)
+                if (loadAttempted) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Patient not found",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = onBack) { Text("Go Back") }
+                    }
+                } else {
+                    CircularProgressIndicator(color = KalazaRed)
+                }
             }
             return@Scaffold
         }
@@ -419,21 +434,32 @@ private fun AddVitalsDialog(
     var sugarFasting by remember { mutableStateOf("") }
     var sugarPP by remember { mutableStateOf("") }
 
+    // Plausible clinical ranges — out-of-range values are almost always a typo,
+    // not a real reading, so they're rejected rather than silently stored.
+    val pulseError = pulse.isNotBlank() && (pulse.toIntOrNull() ?: -1) !in 30..220
+    val bpSysError = bpSystolic.isNotBlank() && (bpSystolic.toIntOrNull() ?: -1) !in 60..260
+    val bpDiaError = bpDiastolic.isNotBlank() && (bpDiastolic.toIntOrNull() ?: -1) !in 30..160
+    val spo2Error = spo2.isNotBlank() && (spo2.toIntOrNull() ?: -1) !in 0..100
+    val tempError = temp.isNotBlank() && (temp.toDoubleOrNull() ?: -1.0) !in 90.0..110.0
+    val sugarFastingError = sugarFasting.isNotBlank() && (sugarFasting.toIntOrNull() ?: -1) !in 20..600
+    val sugarPPError = sugarPP.isNotBlank() && (sugarPP.toIntOrNull() ?: -1) !in 20..600
+    val hasAnyError = pulseError || bpSysError || bpDiaError || spo2Error || tempError || sugarFastingError || sugarPPError
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Record Vitals", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = pulse, onValueChange = { pulse = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Pulse (bpm)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(value = pulse, onValueChange = { pulse = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Pulse (bpm)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, isError = pulseError, supportingText = if (pulseError) { { Text("30–220 bpm") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = bpSystolic, onValueChange = { bpSystolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Sys") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    OutlinedTextField(value = bpDiastolic, onValueChange = { bpDiastolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Dia") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = bpSystolic, onValueChange = { bpSystolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Sys") }, modifier = Modifier.weight(1f), singleLine = true, isError = bpSysError, supportingText = if (bpSysError) { { Text("60–260") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = bpDiastolic, onValueChange = { bpDiastolic = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("BP Dia") }, modifier = Modifier.weight(1f), singleLine = true, isError = bpDiaError, supportingText = if (bpDiaError) { { Text("30–160") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
-                OutlinedTextField(value = spo2, onValueChange = { spo2 = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("SpO2 (%)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(value = temp, onValueChange = { input -> temp = input.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Temperature (°F)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(value = spo2, onValueChange = { spo2 = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("SpO2 (%)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, isError = spo2Error, supportingText = if (spo2Error) { { Text("0–100%") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(value = temp, onValueChange = { input -> temp = input.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Temperature (°F)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, isError = tempError, supportingText = if (tempError) { { Text("90–110 °F") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = sugarFasting, onValueChange = { sugarFasting = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar Fast") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    OutlinedTextField(value = sugarPP, onValueChange = { sugarPP = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar PP") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = sugarFasting, onValueChange = { sugarFasting = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar Fast") }, modifier = Modifier.weight(1f), singleLine = true, isError = sugarFastingError, supportingText = if (sugarFastingError) { { Text("20–600") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = sugarPP, onValueChange = { sugarPP = it.filter { c -> c.isDigit() }.take(3) }, label = { Text("Sugar PP") }, modifier = Modifier.weight(1f), singleLine = true, isError = sugarPPError, supportingText = if (sugarPPError) { { Text("20–600") } } else null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
             }
         },
@@ -455,7 +481,7 @@ private fun AddVitalsDialog(
                     )
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
-                enabled = pulse.isNotBlank() || bpSystolic.isNotBlank(),
+                enabled = (pulse.isNotBlank() || bpSystolic.isNotBlank()) && !hasAnyError,
             ) { Text("Sign & Save") }
         },
         dismissButton = {
@@ -476,6 +502,7 @@ private fun MarTabContent(
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var administerTargetId by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         MarTable(
@@ -505,7 +532,9 @@ private fun MarTabContent(
             patientId = patientId,
             onDismiss = { showAddDialog = false },
             onSave = { entry ->
-                marVm.addMedication(entry)
+                marVm.addMedication(entry) { warning ->
+                    if (warning != null) Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
+                }
                 showAddDialog = false
             }
         )
@@ -533,8 +562,7 @@ private fun AddMedicationDialog(
     var name by remember { mutableStateOf("") }
     var dose by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
-    var hour by remember { mutableStateOf("8") }
-    var minute by remember { mutableStateOf("00") }
+    var scheduleTime by remember { mutableStateOf(java.time.LocalTime.of(8, 0)) }
     var notes by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -547,12 +575,8 @@ private fun AddMedicationDialog(
                     OutlinedTextField(value = dose, onValueChange = { dose = it }, label = { Text("Dose") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = quantity, onValueChange = { quantity = it }, label = { Text("Qty") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Time:", style = MaterialTheme.typography.bodyMedium)
-                    OutlinedTextField(value = hour, onValueChange = { hour = it }, label = { Text("HH") }, modifier = Modifier.width(72.dp), singleLine = true)
-                    Text(":", style = MaterialTheme.typography.titleLarge)
-                    OutlinedTextField(value = minute, onValueChange = { minute = it }, label = { Text("MM") }, modifier = Modifier.width(72.dp), singleLine = true)
-                }
+                Text("Time:", style = MaterialTheme.typography.bodyMedium)
+                com.kalazacare.app.ui.components.TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
                 OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
             }
         },
@@ -565,10 +589,7 @@ private fun AddMedicationDialog(
                             medicineName = name,
                             dose = dose,
                             quantity = quantity,
-                            scheduleTime = java.time.LocalTime.of(
-                                hour.toIntOrNull() ?: 8,
-                                minute.toIntOrNull() ?: 0
-                            ),
+                            scheduleTime = scheduleTime,
                             notes = notes,
                         )
                     )

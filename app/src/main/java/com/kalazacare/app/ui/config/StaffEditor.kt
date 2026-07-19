@@ -214,7 +214,7 @@ private fun AddStaffDialog(
                 onClick = {
                     onAddStaff(
                         Staff(
-                            name = name,
+                            name = name.trim(),
                             email = email,
                             role = selectedRole,
                             phone = phone,

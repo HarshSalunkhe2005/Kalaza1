@@ -18,7 +18,8 @@ interface AuthRepository {
 class MockAuthRepository : AuthRepository {
     private var loggedIn: Staff? = null
     override fun login(name: String, password: String): Staff? {
-        loggedIn = MockData.staffList.firstOrNull { it.name.equals(name, ignoreCase = true) && it.isActive }
+        val trimmedName = name.trim()
+        loggedIn = MockData.staffList.firstOrNull { it.name.trim().equals(trimmedName, ignoreCase = true) && it.isActive }
         return loggedIn
     }
     override fun logout() { loggedIn = null }
@@ -96,10 +97,17 @@ interface MedicationRepository {
     fun allotMedication(id: String, staffId: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime)
 }
 
+/**
+ * PENDING/OVERDUE is a live-computed view of the schedule, not a persisted
+ * fact — recomputed both ways so editing a dose's time (e.g. moving it
+ * later) un-overdues it instead of leaving it stuck OVERDUE forever.
+ * ADMINISTERED entries are left untouched regardless of schedule.
+ */
 private fun MedicationEntry.withComputedStatus(): MedicationEntry {
-    if (status != MedStatus.PENDING) return this
+    if (status != MedStatus.PENDING && status != MedStatus.OVERDUE) return this
     val scheduledAt = java.time.LocalDateTime.of(scheduledDate, scheduleTime)
-    return if (scheduledAt.isBefore(LocalDateTime.now())) copy(status = MedStatus.OVERDUE) else this
+    val computed = if (scheduledAt.isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
+    return if (computed != status) copy(status = computed) else this
 }
 
 class MockMedicationRepository : MedicationRepository {
@@ -185,6 +193,7 @@ class MockUtilityRepository : UtilityRepository {
 
 interface DoctorVisitRepository {
     fun getVisitsForPatient(patientId: String): List<DoctorVisit>
+    fun getVisitById(id: String): DoctorVisit?
     fun addVisit(visit: DoctorVisit)
     fun updateVisit(visit: DoctorVisit)  // CHANGE 4: edit + confirm + archive
 }
@@ -193,6 +202,7 @@ class MockDoctorVisitRepository : DoctorVisitRepository {
     private val visits = MockData.doctorVisits.toMutableList()
     override fun getVisitsForPatient(patientId: String) =
         visits.filter { it.patientId == patientId }.sortedByDescending { it.date }
+    override fun getVisitById(id: String) = visits.firstOrNull { it.id == id }
     override fun addVisit(visit: DoctorVisit) { visits.add(visit) }
     override fun updateVisit(visit: DoctorVisit) {
         val idx = visits.indexOfFirst { it.id == visit.id }

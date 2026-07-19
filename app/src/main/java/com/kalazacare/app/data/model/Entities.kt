@@ -21,6 +21,9 @@ enum class Gender { MALE, FEMALE, OTHER }
 
 enum class ApprovalStatus { PENDING, APPROVED, REJECTED }
 
+/** What kind of record an [ApprovalRequest] applies its diff to once approved. */
+enum class ApprovalEntityType { PATIENT, DOCTOR_VISIT }
+
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
 enum class AllotmentStatus { NOT_ALLOTTED, ALLOTTED }
@@ -155,6 +158,8 @@ data class CareNote(
 
 data class ApprovalRequest(
     val id: String = "",
+    val entityType: ApprovalEntityType = ApprovalEntityType.PATIENT,
+    val entityId: String = "",
     val patientId: String = "",
     val patientName: String = "",
     val requestedById: String = "",

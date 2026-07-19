@@ -8,6 +8,6 @@ fun String.toInitials(): String =
         .joinToString("")
 
 fun String.capitalizeWords(): String =
-    this.lowercase().split(" ").joinToString(" ") { word ->
-        word.replaceFirstChar { it.uppercaseChar() }
-    }
+    this.trim().split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { word -> word.lowercase().replaceFirstChar { it.uppercaseChar() } }

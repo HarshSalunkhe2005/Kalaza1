@@ -176,7 +176,7 @@ fun AddEditPatientScreen(
 
             val isAgeValid = (age.toIntOrNull() ?: 0) in 1..120
             val isPhoneValid = emergencyPhone.isEmpty() || emergencyPhone.length == 10
-            val canSave = name.isNotBlank() && roomNo.isNotBlank() && isAgeValid && isPhoneValid
+            val canSave = name.isNotBlank() && roomNo.isNotBlank() && isAgeValid && isPhoneValid && (!isEditing || patient != null)
 
             Button(
                 onClick = {
@@ -192,6 +192,11 @@ fun AddEditPatientScreen(
                         Toast.makeText(context, "Emergency phone must be exactly 10 digits", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
+                    val currentPatient = patient
+                    if (isEditing && currentPatient == null) {
+                        Toast.makeText(context, "Patient data still loading, please wait", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
 
                     val p = Patient(
                         id = if (isEditing) patientId!! else "",
@@ -205,11 +210,11 @@ fun AddEditPatientScreen(
                         allergies = allergies,
                         emergencyContact = emergencyContact,
                         emergencyPhone = emergencyPhone,
-                        admissionDate = if (isEditing) patient?.admissionDate ?: java.time.LocalDate.now() else java.time.LocalDate.now()
+                        admissionDate = if (isEditing) currentPatient?.admissionDate ?: java.time.LocalDate.now() else java.time.LocalDate.now()
                     )
-                    
-                    if (isEditing) {
-                        viewModel.saveOrRequestApproval(patient!!, p) { success, msg ->
+
+                    if (isEditing && currentPatient != null) {
+                        viewModel.saveOrRequestApproval(currentPatient, p) { success, msg ->
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             if (success) onSaved()
                         }

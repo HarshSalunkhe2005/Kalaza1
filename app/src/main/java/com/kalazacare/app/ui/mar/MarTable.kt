@@ -3,7 +3,6 @@ package com.kalazacare.app.ui.mar
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
@@ -11,12 +10,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.AllotmentStatus
 import com.kalazacare.app.data.model.MedStatus
 import com.kalazacare.app.data.model.MedicationEntry
 import com.kalazacare.app.ui.components.MedStatusBadge
+import com.kalazacare.app.ui.components.TimeOfDayField
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.OnSurface
 import com.kalazacare.app.ui.theme.OnSurfaceVariant
@@ -141,8 +140,7 @@ private fun EditMedicationDialog(
     var name     by remember { mutableStateOf(entry.medicineName) }
     var dose     by remember { mutableStateOf(entry.dose) }
     var quantity by remember { mutableStateOf(entry.quantity) }
-    var hour     by remember { mutableStateOf(entry.scheduleTime.hour.toString()) }
-    var minute   by remember { mutableStateOf(entry.scheduleTime.minute.toString().padStart(2, '0')) }
+    var scheduleTime by remember { mutableStateOf(entry.scheduleTime) }
     var notes    by remember { mutableStateOf(entry.notes) }
 
     AlertDialog(
@@ -158,16 +156,8 @@ private fun EditMedicationDialog(
                     OutlinedTextField(value = quantity, onValueChange = { quantity = it },
                         label = { Text("Qty") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Time:", style = MaterialTheme.typography.bodyMedium)
-                    OutlinedTextField(value = hour, onValueChange = { hour = it },
-                        label = { Text("HH") }, modifier = Modifier.width(72.dp), singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    Text(":", style = MaterialTheme.typography.titleLarge)
-                    OutlinedTextField(value = minute, onValueChange = { minute = it },
-                        label = { Text("MM") }, modifier = Modifier.width(72.dp), singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                }
+                Text("Time:", style = MaterialTheme.typography.bodyMedium)
+                TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
                 OutlinedTextField(value = notes, onValueChange = { notes = it },
                     label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
             }
@@ -179,10 +169,7 @@ private fun EditMedicationDialog(
                         medicineName = name,
                         dose = dose,
                         quantity = quantity,
-                        scheduleTime = java.time.LocalTime.of(
-                            hour.toIntOrNull()?.coerceIn(0, 23) ?: entry.scheduleTime.hour,
-                            minute.toIntOrNull()?.coerceIn(0, 59) ?: entry.scheduleTime.minute
-                        ),
+                        scheduleTime = scheduleTime,
                         notes = notes,
                     ))
                 },
