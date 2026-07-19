@@ -13,7 +13,17 @@ class XlsxWriter {
     private val sheets = mutableListOf<Pair<String, List<List<String>>>>()
 
     fun addSheet(name: String, rows: List<List<String>>) {
-        sheets.add(sanitizeSheetName(name) to rows)
+        sheets.add(uniqueSheetName(sanitizeSheetName(name)) to rows)
+    }
+
+    private fun uniqueSheetName(name: String): String {
+        if (sheets.none { it.first.equals(name, ignoreCase = true) }) return name
+        var suffix = 2
+        while (true) {
+            val candidate = "${name.take(31 - " ($suffix)".length)} ($suffix)"
+            if (sheets.none { it.first.equals(candidate, ignoreCase = true) }) return candidate
+            suffix++
+        }
     }
 
     fun build(): ByteArray {
@@ -78,8 +88,7 @@ $overrides
         val rowTags = rows.mapIndexed { r, row ->
             val cells = row.mapIndexed { c, value ->
                 val ref = "${columnLetter(c)}${r + 1}"
-                val asNumber = value.toDoubleOrNull()
-                if (asNumber != null) {
+                if (isPlainNumber(value)) {
                     "<c r=\"$ref\"><v>$value</v></c>"
                 } else {
                     "<c r=\"$ref\" t=\"inlineStr\"><is><t xml:space=\"preserve\">${escape(value)}</t></is></c>"
@@ -90,6 +99,11 @@ $overrides
         return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>$rowTags</sheetData></worksheet>"""
     }
+
+    private val plainNumberRegex = Regex("^-?(0|[1-9]\\d*)(\\.\\d+)?$")
+
+    private fun isPlainNumber(value: String): Boolean =
+        plainNumberRegex.matches(value)
 
     private fun columnLetter(index: Int): String {
         var i = index
@@ -105,4 +119,5 @@ $overrides
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+        .replace("\"", "&quot;")
 }

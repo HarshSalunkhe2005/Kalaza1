@@ -311,6 +311,7 @@ class MarViewModel(
     }
 
     fun addMedication(entry: MedicationEntry, onResult: (warning: String?) -> Unit = {}) {
+        if (!SessionManager.isAdmin()) return
         val admissionDate = patientRepo.getPatientById(entry.patientId)?.admissionDate
         val warning = if (admissionDate != null && entry.scheduledDate.isBefore(admissionDate))
             "Warning: this dose is scheduled before the patient's admission date ($admissionDate)"
@@ -322,12 +323,16 @@ class MarViewModel(
 
     // CHANGE 5: edit existing medication entry (SuperAdmin only)
     fun updateMedication(entry: MedicationEntry) {
+        if (!SessionManager.isAdmin()) return
         repo.updateMedication(entry)
         load(entry.patientId, entry.scheduledDate)
     }
 
-    // Add/edit/delete of MAR entries is SuperAdmin-only (enforced in the UI too).
+    // Add/edit/delete of MAR entries is SuperAdmin-only (enforced in the UI too,
+    // but the ViewModel double-checks — same defense-in-depth pattern as every
+    // other privileged mutation in this file).
     fun deleteMedication(entry: MedicationEntry) {
+        if (!SessionManager.isAdmin()) return
         repo.deleteMedication(entry.id)
         load(entry.patientId, entry.scheduledDate)
     }
@@ -546,6 +551,7 @@ class DoctorVisitViewModel(
             if (original.doctorName != updated.doctorName) changes.add("Doctor Name" to (original.doctorName to updated.doctorName))
             if (original.specialty != updated.specialty) changes.add("Specialty" to (original.specialty to updated.specialty))
             if (original.date != updated.date) changes.add("Visit Date" to (original.date.toString() to updated.date.toString()))
+            if (original.time != updated.time) changes.add("Visit Time" to (original.time.toString() to updated.time.toString()))
             if (original.notes != updated.notes) changes.add("Notes" to (original.notes to updated.notes))
             if (original.nextVisitDate != updated.nextVisitDate) changes.add("Next Visit Date" to ((original.nextVisitDate?.toString() ?: "") to (updated.nextVisitDate?.toString() ?: "")))
             if (original.prescriptionChanges != updated.prescriptionChanges) changes.add("Prescription Changes" to (original.prescriptionChanges to updated.prescriptionChanges))
@@ -811,6 +817,7 @@ class ApprovalViewModel(
         "Doctor Name"           -> visit.copy(doctorName = newValue)
         "Specialty"             -> visit.copy(specialty = newValue)
         "Visit Date"            -> visit.copy(date = runCatching { LocalDate.parse(newValue) }.getOrDefault(visit.date))
+        "Visit Time"            -> visit.copy(time = runCatching { java.time.LocalTime.parse(newValue) }.getOrDefault(visit.time))
         "Notes"                 -> visit.copy(notes = newValue)
         "Next Visit Date"       -> visit.copy(nextVisitDate = newValue.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() })
         "Prescription Changes"  -> visit.copy(prescriptionChanges = newValue)
