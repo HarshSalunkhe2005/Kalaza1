@@ -10,20 +10,42 @@ import java.time.LocalDateTime
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AuthRepository {
-    fun login(name: String, password: String): Staff?
+    /** Null on any failure — wrong name, wrong password, or a revoked (inactive) account. */
+    suspend fun login(name: String, password: String): Staff?
     fun logout()
     fun currentStaff(): Staff?
 }
 
+/**
+ * Mock/offline auth. Passwords are still real and hashed here (via [PasswordHasher])
+ * so local mode enforces per-user credentials rather than accepting anything —
+ * but this is a stand-in for [FirebaseAuthRepository], not a security model of its
+ * own. Seed staff all use the password "kalaza123" until a Super Admin resets them.
+ */
 class MockAuthRepository : AuthRepository {
     private var loggedIn: Staff? = null
-    override fun login(name: String, password: String): Staff? {
+    // staffId -> "salt:hash". Seeded lazily so every mock staff member has a real,
+    // checkable password without hand-writing a hash literal per seed row.
+    private val passwordHashes = MockData.staffList.associate {
+        it.id to com.kalazacare.app.util.PasswordHasher.hash("kalaza123")
+    }.toMutableMap()
+
+    override suspend fun login(name: String, password: String): Staff? {
         val trimmedName = name.trim()
-        loggedIn = MockData.staffList.firstOrNull { it.name.trim().equals(trimmedName, ignoreCase = true) && it.isActive }
-        return loggedIn
+        val staff = MockData.staffList.firstOrNull { it.name.trim().equals(trimmedName, ignoreCase = true) && it.isActive }
+            ?: return null
+        val hash = passwordHashes[staff.id] ?: return null
+        if (!com.kalazacare.app.util.PasswordHasher.verify(password, hash)) return null
+        loggedIn = staff
+        return staff
     }
     override fun logout() { loggedIn = null }
     override fun currentStaff(): Staff? = loggedIn
+
+    /** Used by [MockStaffRepository.addStaff] to record the password a Super Admin assigns. */
+    fun setPasswordHash(staffId: String, password: String) {
+        passwordHashes[staffId] = com.kalazacare.app.util.PasswordHasher.hash(password)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -359,29 +381,54 @@ class MockAuditRepository : AuditRepository {
 // Staff (Admin)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Names are the login key, so two staff members can't share one. */
+class DuplicateStaffNameException(name: String) : Exception("A staff member named \"$name\" already exists.")
+
 interface StaffRepository {
-    fun getAllStaff(): List<Staff>
-    fun addStaff(staff: Staff)
-    fun revokeStaff(id: String)
-    fun unrevokeStaff(id: String)
-    fun deleteStaff(id: String)
-    fun updateStaff(staff: Staff)
+    suspend fun getAllStaff(): List<Staff>
+    /**
+     * Creates the staff member and assigns [password] as their login credential —
+     * done here, at creation time, per the Super-Admin-assigns-passwords policy.
+     * Throws [DuplicateStaffNameException] if the name is already taken.
+     */
+    suspend fun addStaff(name: String, email: String, phone: String, role: UserRole, password: String): Staff
+    suspend fun revokeStaff(id: String)
+    suspend fun unrevokeStaff(id: String)
+    suspend fun deleteStaff(id: String)
+    suspend fun updateStaff(staff: Staff)
 }
 
-class MockStaffRepository : StaffRepository {
+class MockStaffRepository(private val authRepo: MockAuthRepository) : StaffRepository {
     private val staffList = MockData.staffList.toMutableList()
-    override fun getAllStaff() = staffList.sortedBy { it.name }
-    override fun addStaff(staff: Staff) { staffList.add(staff) }
-    override fun revokeStaff(id: String) {
+    override suspend fun getAllStaff() = staffList.sortedBy { it.name }
+    override suspend fun addStaff(name: String, email: String, phone: String, role: UserRole, password: String): Staff {
+        val trimmedName = name.trim()
+        if (staffList.any { it.name.trim().equals(trimmedName, ignoreCase = true) }) {
+            throw DuplicateStaffNameException(trimmedName)
+        }
+        val staff = Staff(
+            id = "staff_${System.currentTimeMillis()}",
+            name = trimmedName,
+            email = email,
+            role = role,
+            phone = phone,
+            isActive = true,
+            joinedDate = LocalDate.now(),
+        )
+        staffList.add(staff)
+        authRepo.setPasswordHash(staff.id, password)
+        return staff
+    }
+    override suspend fun revokeStaff(id: String) {
         val idx = staffList.indexOfFirst { it.id == id }
         if (idx >= 0) staffList[idx] = staffList[idx].copy(isActive = false)
     }
-    override fun unrevokeStaff(id: String) {
+    override suspend fun unrevokeStaff(id: String) {
         val idx = staffList.indexOfFirst { it.id == id }
         if (idx >= 0) staffList[idx] = staffList[idx].copy(isActive = true)
     }
-    override fun deleteStaff(id: String) { staffList.removeAll { it.id == id } }
-    override fun updateStaff(staff: Staff) {
+    override suspend fun deleteStaff(id: String) { staffList.removeAll { it.id == id } }
+    override suspend fun updateStaff(staff: Staff) {
         val idx = staffList.indexOfFirst { it.id == staff.id }
         if (idx >= 0) staffList[idx] = staff
     }

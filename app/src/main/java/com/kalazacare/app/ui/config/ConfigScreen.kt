@@ -68,7 +68,9 @@ fun ConfigScreen(
             when (selectedTabIndex) {
                 0 -> StaffEditor(
                     staffList = staffList,
-                    onAddStaff = { viewModel.addStaff(it) },
+                    onAddStaff = { name, email, phone, role, password, onResult ->
+                        viewModel.addStaff(name, email, phone, role, password, onResult)
+                    },
                     onRevokeStaff = { viewModel.revokeStaff(it) },
                     onUnrevokeStaff = { viewModel.unrevokeStaff(it) },
                     onDeleteStaff = { viewModel.deleteStaff(it) }

@@ -1,11 +1,16 @@
 package com.kalazacare.app
 
 import android.app.Application
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.kalazacare.app.data.repository.*
 
 /**
- * Application class – initialises all mock repositories as singletons.
- * Will be replaced with Dependency Injection (Hilt/Koin) when Firebase is wired.
+ * Application class – initialises all repositories as singletons.
+ *
+ * Auth and Staff are now backed by real Firebase (Auth + Firestore) — the first
+ * step of the staged backend migration. Everything else is still the in-memory
+ * mock, converted one repository at a time.
  */
 class KalazaApp : Application() {
 
@@ -25,7 +30,12 @@ class KalazaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        authRepository        = MockAuthRepository()
+        val firebaseAuth = FirebaseAuth.getInstance()
+        val firestore = FirebaseFirestore.getInstance()
+
+        authRepository        = FirebaseAuthRepository(firebaseAuth, firestore)
+        staffRepository       = FirestoreStaffRepository(firebaseAuth, firestore)
+
         patientRepository     = MockPatientRepository()
         vitalsRepository      = MockVitalsRepository()
         medicationRepository  = MockMedicationRepository()
@@ -34,7 +44,6 @@ class KalazaApp : Application() {
         careNoteRepository    = MockCareNoteRepository()
         approvalRepository    = MockApprovalRepository()
         auditRepository       = MockAuditRepository()
-        staffRepository       = MockStaffRepository()
         allotmentRequestRepository = MockAllotmentRequestRepository()
         notificationRepository = MockNotificationRepository()
     }

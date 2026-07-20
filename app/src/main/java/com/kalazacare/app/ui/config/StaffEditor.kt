@@ -1,18 +1,24 @@
 package com.kalazacare.app.ui.config
 
 import android.util.Patterns
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.Staff
 import com.kalazacare.app.data.model.UserRole
@@ -25,11 +31,12 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun StaffEditor(
     staffList: List<Staff>,
-    onAddStaff: (Staff) -> Unit,
+    onAddStaff: (name: String, email: String, phone: String, role: UserRole, password: String, onResult: (Boolean, String) -> Unit) -> Unit,
     onRevokeStaff: (String) -> Unit,
     onUnrevokeStaff: (String) -> Unit,
     onDeleteStaff: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val currentStaffId = com.kalazacare.app.util.SessionManager.getCurrentStaffId()
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -122,9 +129,11 @@ fun StaffEditor(
         if (showAddDialog) {
             AddStaffDialog(
                 onDismiss = { showAddDialog = false },
-                onAddStaff = { staff ->
-                    onAddStaff(staff)
-                    showAddDialog = false
+                onAddStaff = { name, email, phone, role, password ->
+                    onAddStaff(name, email, phone, role, password) { success, message ->
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        if (success) showAddDialog = false
+                    }
                 }
             )
         }
@@ -135,13 +144,16 @@ fun StaffEditor(
 @Composable
 private fun AddStaffDialog(
     onDismiss: () -> Unit,
-    onAddStaff: (Staff) -> Unit
+    onAddStaff: (name: String, email: String, phone: String, role: UserRole, password: String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var selectedRole by remember { mutableStateOf(UserRole.STAFF) }
+    val isPasswordValid = password.length >= 8
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -177,7 +189,29 @@ private fun AddStaffDialog(
                     supportingText = if (!isPhoneValid) { { Text("Must be 10 digits") } } else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
                 )
-                
+
+                // Assigned here, at creation time — there's no separate invite/setup
+                // step; this is what the staff member logs in with, alongside their name.
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = password.isNotEmpty() && !isPasswordValid,
+                    supportingText = { Text("At least 8 characters") },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            )
+                        }
+                    }
+                )
+
                 ExposedDropdownMenuBox(
                     expanded = expanded,
                     onExpandedChange = { expanded = !expanded }
@@ -211,22 +245,11 @@ private fun AddStaffDialog(
         },
         confirmButton = {
             Button(
-                onClick = {
-                    onAddStaff(
-                        Staff(
-                            name = name.trim(),
-                            email = email,
-                            role = selectedRole,
-                            phone = phone,
-                            isActive = true,
-                            joinedDate = java.time.LocalDate.now()
-                        )
-                    )
-                },
+                onClick = { onAddStaff(name.trim(), email, phone, selectedRole, password) },
                 colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
                 enabled = name.isNotBlank() &&
                     email.isNotBlank() && Patterns.EMAIL_ADDRESS.matcher(email).matches() &&
-                    phone.length == 10
+                    phone.length == 10 && isPasswordValid
             ) {
                 Text("Add")
             }

@@ -2,6 +2,7 @@ package com.kalazacare.app.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
 import com.kalazacare.app.util.PhotoCapture
@@ -9,6 +10,7 @@ import com.kalazacare.app.util.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -25,12 +27,15 @@ class LoginViewModel(private val authRepo: AuthRepository) : ViewModel() {
             _loginState.value = LoginState.Error("Please fill in all fields")
             return
         }
-        val staff = authRepo.login(name, password)
-        if (staff != null) {
-            SessionManager.setCurrentStaff(staff)
-            _loginState.value = LoginState.Success(staff)
-        } else {
-            _loginState.value = LoginState.Error("Invalid credentials or account inactive")
+        _loginState.value = LoginState.Loading
+        viewModelScope.launch {
+            val staff = authRepo.login(name, password)
+            if (staff != null) {
+                SessionManager.setCurrentStaff(staff)
+                _loginState.value = LoginState.Success(staff)
+            } else {
+                _loginState.value = LoginState.Error("Invalid credentials or account inactive")
+            }
         }
     }
     fun resetState() { _loginState.value = LoginState.Idle }
@@ -992,11 +997,26 @@ class ConfigViewModel(
     private val _utilItems = MutableStateFlow<List<UtilityItem>>(emptyList())
     val utilItems: StateFlow<List<UtilityItem>> = _utilItems.asStateFlow()
     init { load() }
-    fun load() { _staffList.value = staffRepo.getAllStaff(); _utilItems.value = utilityRepo.getUtilityItems() }
-    fun addStaff(staff: Staff) { staffRepo.addStaff(staff.copy(id = "staff_${System.currentTimeMillis()}")); _staffList.value = staffRepo.getAllStaff() }
-    fun revokeStaff(id: String) { staffRepo.revokeStaff(id); _staffList.value = staffRepo.getAllStaff() }
-    fun unrevokeStaff(id: String) { staffRepo.unrevokeStaff(id); _staffList.value = staffRepo.getAllStaff() }
-    fun deleteStaff(id: String) { staffRepo.deleteStaff(id); _staffList.value = staffRepo.getAllStaff() }
+    fun load() { viewModelScope.launch { refreshStaff(); _utilItems.value = utilityRepo.getUtilityItems() } }
+    private suspend fun refreshStaff() { _staffList.value = staffRepo.getAllStaff() }
+
+    /** [password] is assigned by the Super Admin right now, at creation time — there's no separate invite/setup step. */
+    fun addStaff(name: String, email: String, phone: String, role: UserRole, password: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                staffRepo.addStaff(name, email, phone, role, password)
+                refreshStaff()
+                onResult(true, "Staff member added")
+            } catch (e: DuplicateStaffNameException) {
+                onResult(false, e.message ?: "That name is already taken")
+            } catch (e: Exception) {
+                onResult(false, "Could not add staff member: ${e.message}")
+            }
+        }
+    }
+    fun revokeStaff(id: String) { viewModelScope.launch { staffRepo.revokeStaff(id); refreshStaff() } }
+    fun unrevokeStaff(id: String) { viewModelScope.launch { staffRepo.unrevokeStaff(id); refreshStaff() } }
+    fun deleteStaff(id: String) { viewModelScope.launch { staffRepo.deleteStaff(id); refreshStaff() } }
     fun addUtilityItem(item: UtilityItem) { utilityRepo.addUtilityItem(item.copy(id = "ui_${System.currentTimeMillis()}")); _utilItems.value = utilityRepo.getUtilityItems() }
     fun deleteUtilityItem(id: String) { utilityRepo.deleteUtilityItem(id); _utilItems.value = utilityRepo.getUtilityItems() }
 }

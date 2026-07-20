@@ -66,6 +66,11 @@ data class Staff(
     val phone: String = "",
     val isActive: Boolean = true,
     val joinedDate: LocalDate = LocalDate.now(),
+    // Synthetic email used only to authenticate this staff member against Firebase
+    // Auth's email/password provider — login itself is still by [name] + password;
+    // this never appears in the UI. Derived deterministically from name + id at
+    // creation time. Unused by the mock repositories.
+    val authEmail: String = "",
 )
 
 // ─────────────────────────────────────────────────────────────────────────────

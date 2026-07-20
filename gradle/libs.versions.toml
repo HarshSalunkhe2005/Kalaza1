@@ -11,6 +11,7 @@ coil = "2.7.0"
 firebaseBom = "33.7.0"
 googleServices = "4.4.2"
 splashscreen = "1.0.1"
+coroutinesPlayServices = "1.9.0"
 
 [libraries]
 # Core
@@ -45,6 +46,8 @@ firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
 firebase-storage = { group = "com.google.firebase", name = "firebase-storage-ktx" }
+# Bridges Firebase's Task API to suspend functions (.await())
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
