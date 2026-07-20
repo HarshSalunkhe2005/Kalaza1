@@ -2,8 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    // Uncomment when google-services.json is added:
-    // alias(libs.plugins.google.services)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -83,10 +82,11 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
-    // Firebase (declared, wired later when google-services.json is added)
-    // implementation(platform(libs.firebase.bom))
-    // implementation(libs.firebase.firestore)
-    // implementation(libs.firebase.auth)
+    // Firebase — Firestore + Auth wired first; Messaging/Storage come with
+    // their respective migrations (push notifications, real photo evidence).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.auth)
     // implementation(libs.firebase.messaging)
     // implementation(libs.firebase.storage)
 
