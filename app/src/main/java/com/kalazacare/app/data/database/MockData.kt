@@ -8,7 +8,7 @@ import java.time.LocalTime
 object MockData {
 
     val staffList = listOf(
-        Staff(id = "staff_1", name = "Priya Sharma",  email = "admin@kalazacare.com",
+        Staff(id = "staff_1", name = "Somnath",  email = "admin@kalazacare.com",
             role = UserRole.SUPER_ADMIN, phone = "+91 98765 00001", isActive = true,
             joinedDate = LocalDate.of(2022, 3, 1)),
         Staff(id = "staff_2", name = "Kavita Desai",  email = "kavita@kalazacare.com",
@@ -23,7 +23,7 @@ object MockData {
         Staff(id = "staff_5", name = "Anjali Rane",   email = "anjali@kalazacare.com",
             role = UserRole.STAFF,      phone = "+91 98765 00005", isActive = true,
             joinedDate = LocalDate.of(2024, 5, 20)),
-        Staff(id = "staff_6", name = "Vikram Joshi",  email = "vikram@kalazacare.com",
+        Staff(id = "staff_6", name = "Arti",  email = "vikram@kalazacare.com",
             role = UserRole.ADMIN,      phone = "+91 98765 00006", isActive = true,
             joinedDate = LocalDate.of(2024, 8, 1)),
     )
@@ -303,12 +303,12 @@ object MockData {
             time = LocalTime.of(7, 0),
             quantities = mapOf("ui1" to 2, "ui2" to 3, "ui3" to 1, "ui4" to 4, "ui5" to 1, "ui6" to 10),
             issuedToCaregiver = "Rahul Patil", issuedBySupervisor = "Kavita Desai",
-            checkedBy = "Priya Sharma"),
+            checkedBy = "Somnath"),
         UtilityRecord(id = "u2", patientId = "p1", date = LocalDate.now().minusDays(1),
             time = LocalTime.of(7, 0),
             quantities = mapOf("ui1" to 2, "ui2" to 3, "ui4" to 4, "ui5" to 1, "ui6" to 8),
             issuedToCaregiver = "Rahul Patil", issuedBySupervisor = "Kavita Desai",
-            checkedBy = "Priya Sharma"),
+            checkedBy = "Somnath"),
         UtilityRecord(id = "u3", patientId = "p1", date = LocalDate.now(),
             time = LocalTime.of(7, 0),
             quantities = mapOf("ui1" to 2, "ui2" to 2, "ui3" to 1, "ui4" to 4, "ui5" to 1, "ui6" to 10),
@@ -400,7 +400,7 @@ object MockData {
             oldValue = "+91 99001 00001",
             newValue = "+91 99002 11111",
             status = ApprovalStatus.APPROVED,
-            reviewedByName = "Priya Sharma",
+            reviewedByName = "Somnath",
             timestamp = LocalDateTime.now().minusDays(1),
             reviewedAt = LocalDateTime.now().minusHours(18)),
     )
@@ -415,7 +415,7 @@ object MockData {
             details = "BP: 139/89, Pulse: 79, SPO2: 97%, Temp: 98.7°F",
             timestamp = LocalDateTime.now().minusHours(2).minusMinutes(10), iconName = "monitor_heart"),
         AuditLogEntry(id = "al3", action = "Edit Request Approved",
-            performedByName = "Priya Sharma", targetPatientName = "Ramesh Kulkarni",
+            performedByName = "Somnath", targetPatientName = "Ramesh Kulkarni",
             details = "Approved change to Emergency Phone by Kavita Desai",
             timestamp = LocalDateTime.now().minusHours(18), iconName = "check_circle"),
     )
