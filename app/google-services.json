@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "252227891937",
+    "project_id": "kalaza-care",
+    "storage_bucket": "kalaza-care.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:252227891937:android:733b51e04a3594b1f17da0",
+        "android_client_info": {
+          "package_name": "com.kalazacare.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCs1rthjBf7o29AUuMHdzGyNmPapF2PUtc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
