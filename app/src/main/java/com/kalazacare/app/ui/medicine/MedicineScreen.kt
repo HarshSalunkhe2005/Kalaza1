@@ -93,8 +93,8 @@ fun MedicineScreen(
             message = "Confirm you've prepared ${roundItem.entry.medicineName} ${roundItem.entry.dose} " +
                       "for ${roundItem.patientName} (Room ${roundItem.patientRoom}) " +
                       "at ${DateUtils.formatTime(roundItem.entry.scheduleTime)}.",
-            onConfirm = {
-                viewModel.allot(roundItem.entry)
+            onConfirm = { photoUrl, expiresAt ->
+                viewModel.allot(roundItem.entry, photoUrl, expiresAt)
                 allotTarget = null
             },
             onDismiss = { allotTarget = null }
@@ -102,14 +102,14 @@ fun MedicineScreen(
     }
 
     // Dialog: fulfilling a staff's allotment request
-    // CHANGE 1 FIX: pass only the request; ViewModel does the entry lookup
+    // Pass only the request; the ViewModel does the entry lookup
     fulfillTarget?.let { request ->
         PhotoConfirmDialog(
             title = "Fulfill Allotment Request",
             message = "${request.requestedByName} flagged that ${request.medicineName} ${request.dose} " +
                       "for ${request.patientName} wasn't allotted. Confirm now.",
-            onConfirm = {
-                viewModel.fulfillRequest(request)
+            onConfirm = { photoUrl, expiresAt ->
+                viewModel.fulfillRequest(request, photoUrl, expiresAt)
                 fulfillTarget = null
             },
             onDismiss = { fulfillTarget = null }

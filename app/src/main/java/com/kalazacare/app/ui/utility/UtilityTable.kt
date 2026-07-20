@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,7 +48,8 @@ fun UtilityTable(
                 .fillMaxWidth()
                 .background(KalazaRed)
                 .horizontalScroll(scrollState)
-                .padding(vertical = 12.dp)
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             HeaderCell("Date", width = 100.dp)
             HeaderCell("Time", width = 80.dp)
@@ -77,7 +79,8 @@ fun UtilityTable(
                         .fillMaxWidth()
                         .background(backgroundColor)
                         .horizontalScroll(scrollState)
-                        .padding(vertical = 4.dp)
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     DataCell(DateUtils.formatDate(record.date), width = 100.dp)
                     DataCell(DateUtils.formatTime(record.time), width = 80.dp)

@@ -642,8 +642,8 @@ private fun MarTabContent(
         PhotoConfirmDialog(
             title = "Confirm Medication Given",
             message = "Confirm the dose was given to the patient. A photo is required as proof.",
-            onConfirm = {
-                marVm.markAdministered(id)
+            onConfirm = { photoUrl, expiresAt ->
+                marVm.markAdministered(id, photoUrl, expiresAt)
                 administerTargetId = null
             },
             onDismiss = { administerTargetId = null }

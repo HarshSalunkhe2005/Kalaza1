@@ -37,6 +37,7 @@ fun DashboardScreen(
     val pendingApprovals by viewModel.pendingApprovals.collectAsState()
     val totalPatients by viewModel.totalPatients.collectAsState()
     val showArchived by viewModel.showArchived.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
 
     Scaffold(
         topBar = {
@@ -123,7 +124,11 @@ fun DashboardScreen(
             }
 
             // Patient List
-            if (patients.isEmpty()) {
+            if (isLoading) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = KalazaRed)
+                }
+            } else if (patients.isEmpty()) {
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     EmptyState(
                         title = "No Patients Found",

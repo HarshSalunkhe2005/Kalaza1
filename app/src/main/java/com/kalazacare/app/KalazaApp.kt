@@ -5,16 +5,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.kalazacare.app.data.repository.*
 
-/**
- * Application class – initialises all repositories as singletons.
- *
- * Auth and Staff are now backed by real Firebase (Auth + Firestore) — the first
- * step of the staged backend migration. Everything else is still the in-memory
- * mock, converted one repository at a time.
- */
+/** Application class — every repository is now backed by real Firebase (Auth + Firestore). */
 class KalazaApp : Application() {
 
-    // Repositories exposed as singletons
     lateinit var authRepository:       AuthRepository
     lateinit var patientRepository:    PatientRepository
     lateinit var vitalsRepository:     VitalsRepository
@@ -35,16 +28,15 @@ class KalazaApp : Application() {
 
         authRepository        = FirebaseAuthRepository(firebaseAuth, firestore)
         staffRepository       = FirestoreStaffRepository(firebaseAuth, firestore)
-
-        patientRepository     = MockPatientRepository()
-        vitalsRepository      = MockVitalsRepository()
-        medicationRepository  = MockMedicationRepository()
-        utilityRepository     = MockUtilityRepository()
-        doctorVisitRepository = MockDoctorVisitRepository()
-        careNoteRepository    = MockCareNoteRepository()
-        approvalRepository    = MockApprovalRepository()
-        auditRepository       = MockAuditRepository()
-        allotmentRequestRepository = MockAllotmentRequestRepository()
-        notificationRepository = MockNotificationRepository()
+        patientRepository     = FirestorePatientRepository(firestore)
+        vitalsRepository      = FirestoreVitalsRepository(firestore)
+        medicationRepository  = FirestoreMedicationRepository(firestore)
+        utilityRepository     = FirestoreUtilityRepository(firestore)
+        doctorVisitRepository = FirestoreDoctorVisitRepository(firestore)
+        careNoteRepository    = FirestoreCareNoteRepository(firestore)
+        approvalRepository    = FirestoreApprovalRepository(firestore)
+        auditRepository       = FirestoreAuditRepository(firestore)
+        allotmentRequestRepository = FirestoreAllotmentRequestRepository(firestore)
+        notificationRepository = FirestoreNotificationRepository(firestore)
     }
 }

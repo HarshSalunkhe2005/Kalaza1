@@ -82,14 +82,13 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
-    // Firebase — Firestore + Auth wired first; Messaging/Storage come with
-    // their respective migrations (push notifications, real photo evidence).
+    // Firebase — push notifications (Messaging) are the one piece still deferred.
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.storage)
     implementation(libs.kotlinx.coroutines.play.services)
     // implementation(libs.firebase.messaging)
-    // implementation(libs.firebase.storage)
 
     // Debug
     debugImplementation(libs.androidx.ui.tooling)

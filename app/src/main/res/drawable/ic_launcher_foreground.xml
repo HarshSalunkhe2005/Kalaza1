@@ -3,10 +3,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- "A Place Like Home" — a house silhouette with a care cross, in the app's own brand colors -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,54m-30,0a30,30 0,1 1,60,0a30,30 0,1 1,-60,0" />
+        android:pathData="M28,52 L54,30 L80,52 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,52 H74 V84 H34 Z" />
     <path
         android:fillColor="#9B000A"
-        android:pathData="M54,34 L34,74 H74 Z" />
+        android:pathData="M49,58 H59 V63 H64 V73 H59 V78 H49 V73 H44 V63 H49 Z" />
 </vector>

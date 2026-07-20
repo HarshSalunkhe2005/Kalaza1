@@ -19,10 +19,12 @@ import com.kalazacare.app.data.model.Patient
 import com.kalazacare.app.ui.PatientRangeSummary
 import com.kalazacare.app.ui.SummaryStats
 import com.kalazacare.app.ui.SummaryViewModel
+import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.DownloadsSaver
 import com.kalazacare.app.util.XlsxWriter
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -40,7 +42,10 @@ fun SummaryScreen(
     val startDate  by viewModel.startDate.collectAsState()
     val endDate    by viewModel.endDate.collectAsState()
     val patients   by viewModel.patients.collectAsState()
+    val isLoading  by viewModel.isLoading.collectAsState()
     val context    = LocalContext.current
+    val scope      = rememberCoroutineScope()
+    var isExporting by remember { mutableStateOf(false) }
 
     var pickingStart by remember { mutableStateOf(false) }
     var pickingEnd by remember { mutableStateOf(false) }
@@ -52,19 +57,40 @@ fun SummaryScreen(
                 onBack = onBack,
                 onLogout = onLogout,
                 actions = {
-                    IconButton(onClick = {
-                        val report = viewModel.buildRangeReport()
-                        val savedName = exportXlsxToDownloads(context, startDate, endDate, stats, report)
-                        val message = if (savedName != null) "Saved to Downloads: $savedName" else "Export failed"
-                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                    }) {
-                        Icon(Icons.Default.FileDownload, contentDescription = "Download Report (.xlsx)",
-                            tint = com.kalazacare.app.ui.theme.White)
+                    IconButton(
+                        enabled = !isExporting,
+                        onClick = {
+                            scope.launch {
+                                isExporting = true
+                                val report = viewModel.buildRangeReport()
+                                val savedName = exportXlsxToDownloads(context, startDate, endDate, stats, report)
+                                val message = if (savedName != null) "Saved to Downloads: $savedName" else "Export failed"
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                isExporting = false
+                            }
+                        }
+                    ) {
+                        if (isExporting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = com.kalazacare.app.ui.theme.White,
+                            )
+                        } else {
+                            Icon(Icons.Default.FileDownload, contentDescription = "Download Report (.xlsx)",
+                                tint = com.kalazacare.app.ui.theme.White)
+                        }
                     }
                 }
             )
         }
     ) { innerPadding ->
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = KalazaRed)
+            }
+            return@Scaffold
+        }
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
             // CHANGE 3: date-range header → start/end date pickers
@@ -111,13 +137,22 @@ fun SummaryScreen(
             Text("Patient Breakdown", style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(patients) { patient ->
-                    PatientSummaryCard(patient, onViewDetails = { onPatientClick(patient.id) })
+            if (patients.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Default.DateRange,
+                    title = "No Patients Yet",
+                    message = "Patient breakdowns will appear here once patients are added.",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(patients) { patient ->
+                        PatientSummaryCard(patient, onViewDetails = { onPatientClick(patient.id) })
+                    }
                 }
             }
         }
