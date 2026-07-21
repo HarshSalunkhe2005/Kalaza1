@@ -28,9 +28,9 @@ private fun Map<String, Any?>.dateTime(key: String): LocalDateTime =
 private fun Map<String, Any?>.dateTimeOrNull(key: String): LocalDateTime? =
     strOrNull(key)?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
 private inline fun <reified E : Enum<E>> Map<String, Any?>.enum(key: String, default: E): E =
-    strOrNull(key)?.let { name -> E::class.java.enumConstants.firstOrNull { it.name == name } } ?: default
+    strOrNull(key)?.let { name -> E::class.java.enumConstants?.firstOrNull { it.name == name } } ?: default
 private inline fun <reified E : Enum<E>> Map<String, Any?>.enumOrNull(key: String): E? =
-    strOrNull(key)?.let { name -> E::class.java.enumConstants.firstOrNull { it.name == name } }
+    strOrNull(key)?.let { name -> E::class.java.enumConstants?.firstOrNull { it.name == name } }
 @Suppress("UNCHECKED_CAST")
 private fun Map<String, Any?>.intMap(key: String): Map<String, Int> =
     (this[key] as? Map<String, Any?>)?.mapValues { (_, v) -> (v as? Number)?.toInt() ?: 0 } ?: emptyMap()
@@ -433,7 +433,7 @@ private fun AppNotification.toMap(): Map<String, Any?> = mapOf(
     "timestamp" to timestamp.toString(), "isRead" to isRead, "targetRoute" to targetRoute,
 )
 private fun notificationFrom(id: String, d: Map<String, Any?>) = AppNotification(
-    id = id, recipientStaffId = d.str("recipientStaffId"), recipientRole = d.enumOrNull("recipientRole"),
+    id = id, recipientStaffId = d.str("recipientStaffId"), recipientRole = d.enumOrNull<UserRole>("recipientRole"),
     type = d.enum("type", NotificationType.APPROVAL_REQUESTED), title = d.str("title"), message = d.str("message"),
     timestamp = d.dateTime("timestamp"), isRead = d.bool("isRead"), targetRoute = d.str("targetRoute"),
 )
