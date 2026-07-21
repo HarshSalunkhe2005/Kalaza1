@@ -70,7 +70,7 @@ class FirebaseAuthRepository(
             auth.signInWithEmailAndPassword(staff.authEmail, password).await()
             loggedIn = staff
             staff
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
