@@ -23,8 +23,8 @@ private fun parseDateOrNull(s: String?): LocalDate? = s?.let { runCatching { Loc
 private fun parseTime(s: String): LocalTime = runCatching { LocalTime.parse(s) }.getOrDefault(LocalTime.now())
 private fun parseTimestamp(s: String): LocalDateTime = runCatching { OffsetDateTime.parse(s).toLocalDateTime() }
     .recoverCatching { LocalDateTime.parse(s) }.getOrDefault(LocalDateTime.now())
-private fun parseTimestampOrNull(s: String?): LocalDateTime? = s?.let {
-    runCatching { OffsetDateTime.parse(it).toLocalDateTime() }.recoverCatching { LocalDateTime.parse(it) }.getOrNull()
+private fun parseTimestampOrNull(s: String?): LocalDateTime? = s?.let { str ->
+    runCatching { OffsetDateTime.parse(str).toLocalDateTime() }.recoverCatching { LocalDateTime.parse(str) }.getOrNull()
 }
 private fun newId() = UUID.randomUUID().toString()
 
