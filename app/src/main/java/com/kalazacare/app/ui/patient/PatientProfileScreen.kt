@@ -652,6 +652,7 @@ private fun MarTabContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddMedicationDialog(
     patientId: String,
