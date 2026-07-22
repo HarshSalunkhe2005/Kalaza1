@@ -11,8 +11,7 @@
 --        (check "Auto Confirm User")
 --     2. email: rahul.seed@staff.kalazacare.internal    password: 123456
 --        (check "Auto Confirm User")
---   Copy each user's UUID from that table and paste them into the two
---   placeholders below before running this script.
+--   UUIDs already filled in below (Kavita: 34f51254-..., Rahul: 86083451-...).
 --
 -- Safe to run once against a fresh schema. Re-running will fail on the
 -- unique staff name / patient uniqueness lookups below being skipped (it
@@ -20,8 +19,8 @@
 
 do $$
 declare
-  kavita_id uuid := '00000000-0000-0000-0000-000000000000'; -- REPLACE with Kavita's Auth UUID
-  rahul_id  uuid := '00000000-0000-0000-0000-000000000000'; -- REPLACE with Rahul's Auth UUID
+  kavita_id uuid := '34f51254-5c7e-4515-8d75-285515345f9b';
+  rahul_id  uuid := '86083451-aa5f-4f75-89be-19d107f67fbb';
 
   ramesh_id     uuid := gen_random_uuid();
   sulochana_id  uuid := gen_random_uuid();
