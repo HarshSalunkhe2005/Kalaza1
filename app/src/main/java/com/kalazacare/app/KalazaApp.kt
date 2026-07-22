@@ -1,11 +1,10 @@
 package com.kalazacare.app
 
 import android.app.Application
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
+import com.kalazacare.app.data.remote.SupabaseClients
 import com.kalazacare.app.data.repository.*
 
-/** Application class — every repository is now backed by real Firebase (Auth + Firestore). */
+/** Application class — every data repository is backed by Supabase; Firebase Cloud Messaging remains for push. */
 class KalazaApp : Application() {
 
     lateinit var authRepository:       AuthRepository
@@ -23,20 +22,19 @@ class KalazaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val firebaseAuth = FirebaseAuth.getInstance()
-        val firestore = FirebaseFirestore.getInstance()
+        val client = SupabaseClients.main
 
-        authRepository        = FirebaseAuthRepository(firebaseAuth, firestore)
-        staffRepository       = FirestoreStaffRepository(firebaseAuth, firestore, applicationContext)
-        patientRepository     = FirestorePatientRepository(firestore)
-        vitalsRepository      = FirestoreVitalsRepository(firestore)
-        medicationRepository  = FirestoreMedicationRepository(firestore)
-        utilityRepository     = FirestoreUtilityRepository(firestore)
-        doctorVisitRepository = FirestoreDoctorVisitRepository(firestore)
-        careNoteRepository    = FirestoreCareNoteRepository(firestore)
-        approvalRepository    = FirestoreApprovalRepository(firestore)
-        auditRepository       = FirestoreAuditRepository(firestore)
-        allotmentRequestRepository = FirestoreAllotmentRequestRepository(firestore)
-        notificationRepository = FirestoreNotificationRepository(firestore)
+        authRepository        = SupabaseAuthRepository(client)
+        staffRepository       = SupabaseStaffRepository(client)
+        patientRepository     = SupabasePatientRepository(client)
+        vitalsRepository      = SupabaseVitalsRepository(client)
+        medicationRepository  = SupabaseMedicationRepository(client)
+        utilityRepository     = SupabaseUtilityRepository(client)
+        doctorVisitRepository = SupabaseDoctorVisitRepository(client)
+        careNoteRepository    = SupabaseCareNoteRepository(client)
+        approvalRepository    = SupabaseApprovalRepository(client)
+        auditRepository       = SupabaseAuditRepository(client)
+        allotmentRequestRepository = SupabaseAllotmentRequestRepository(client)
+        notificationRepository = SupabaseNotificationRepository(client)
     }
 }

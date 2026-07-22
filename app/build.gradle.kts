@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.google.services)
 }
 
@@ -82,13 +83,19 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
-    // Firebase
+    // Firebase — kept only for Cloud Messaging (push notifications); Auth,
+    // Firestore and Storage moved to Supabase below.
     implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.firestore)
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
     implementation(libs.kotlinx.coroutines.play.services)
+
+    // Supabase — Auth, Postgrest (data) and Storage (photo evidence)
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.storage)
+    implementation(libs.ktor.client.android)
+    implementation(libs.kotlinx.serialization.json)
 
     // Debug
     debugImplementation(libs.androidx.ui.tooling)

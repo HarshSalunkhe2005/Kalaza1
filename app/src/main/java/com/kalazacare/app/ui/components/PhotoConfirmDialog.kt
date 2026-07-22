@@ -67,7 +67,7 @@ fun PhotoConfirmDialog(
             errorMessage = null
             scope.launch {
                 try {
-                    val evidence = PhotoUploader.upload(uri)
+                    val evidence = PhotoUploader.upload(context, uri)
                     uploaded = evidence.url to evidence.expiresAt
                 } catch (_: Exception) {
                     errorMessage = "Upload failed — try again"
