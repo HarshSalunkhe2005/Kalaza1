@@ -27,7 +27,7 @@ class KalazaApp : Application() {
         val firestore = FirebaseFirestore.getInstance()
 
         authRepository        = FirebaseAuthRepository(firebaseAuth, firestore)
-        staffRepository       = FirestoreStaffRepository(firebaseAuth, firestore)
+        staffRepository       = FirestoreStaffRepository(firebaseAuth, firestore, applicationContext)
         patientRepository     = FirestorePatientRepository(firestore)
         vitalsRepository      = FirestoreVitalsRepository(firestore)
         medicationRepository  = FirestoreMedicationRepository(firestore)

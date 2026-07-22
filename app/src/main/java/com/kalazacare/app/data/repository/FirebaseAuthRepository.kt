@@ -1,11 +1,14 @@
 package com.kalazacare.app.data.repository
 
+import android.content.Context
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.kalazacare.app.data.model.Staff
 import com.kalazacare.app.data.model.UserRole
 import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
+import java.util.UUID
 
 private const val STAFF_COLLECTION = "staff"
 
@@ -39,12 +42,26 @@ private fun staffFromDocument(id: String, data: Map<String, Any?>): Staff = Staf
 /**
  * Firebase Auth's password provider needs an email — login here is still strictly
  * by staff Name + password, but under the hood each staff member gets a synthetic,
- * never-shown email derived from their name and Firestore document ID, unique by
- * construction since the ID is unique.
+ * never-shown email combining their name with a random UUID for uniqueness.
  */
-private fun synthesizeAuthEmail(name: String, staffId: String): String {
+private fun synthesizeAuthEmail(name: String): String {
     val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), ".").trim('.').ifBlank { "staff" }
-    return "$slug.$staffId@staff.kalazacare.internal"
+    return "$slug.${UUID.randomUUID()}@staff.kalazacare.internal"
+}
+
+/**
+ * A second, independent FirebaseAuth instance used only for creating new staff
+ * accounts. Firebase's client SDK signs the caller in as whichever user
+ * createUserWithEmailAndPassword just created — on the *default* FirebaseAuth
+ * instance, that would silently hijack the Super Admin's own session onto the
+ * brand-new account. Running account creation against this separate instance
+ * keeps the Super Admin signed in on the default one throughout.
+ */
+private fun secondaryAuth(context: Context): FirebaseAuth {
+    val name = "StaffCreation"
+    val app = FirebaseApp.getApps(context).firstOrNull { it.name == name }
+        ?: FirebaseApp.initializeApp(context, FirebaseApp.getInstance().options, name)
+    return FirebaseAuth.getInstance(app)
 }
 
 class FirebaseAuthRepository(
@@ -86,6 +103,7 @@ class FirebaseAuthRepository(
 class FirestoreStaffRepository(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
+    private val appContext: Context,
 ) : StaffRepository {
     private val staffCollection = firestore.collection(STAFF_COLLECTION)
 
@@ -101,15 +119,20 @@ class FirestoreStaffRepository(
         val existing = staffCollection.whereEqualTo("nameLower", trimmedName.lowercase()).limit(1).get().await()
         if (!existing.isEmpty) throw DuplicateStaffNameException(trimmedName)
 
-        val staffId = staffCollection.document().id
-        val authEmail = synthesizeAuthEmail(trimmedName, staffId)
+        val authEmail = synthesizeAuthEmail(trimmedName)
 
-        // Creates the actual login credential — this is where the Super Admin's
-        // assigned password ends up, hashed and stored by Firebase Auth itself.
-        auth.createUserWithEmailAndPassword(authEmail, password).await()
+        // Creates the actual login credential on the secondary auth instance (see
+        // secondaryAuth doc) — this is where the Super Admin's assigned password
+        // ends up, hashed and stored by Firebase Auth itself. The resulting UID
+        // becomes the Firestore document ID too, so security rules can look a
+        // caller's own staff doc up directly via request.auth.uid.
+        val worker = secondaryAuth(appContext)
+        val result = worker.createUserWithEmailAndPassword(authEmail, password).await()
+        val uid = result.user?.uid ?: error("Firebase did not return a UID for the new account")
+        worker.signOut()
 
         val staff = Staff(
-            id = staffId,
+            id = uid,
             name = trimmedName,
             email = email,
             role = role,
@@ -118,7 +141,7 @@ class FirestoreStaffRepository(
             joinedDate = LocalDate.now(),
             authEmail = authEmail,
         )
-        staffCollection.document(staffId).set(staff.toFirestoreMap()).await()
+        staffCollection.document(uid).set(staff.toFirestoreMap()).await()
         return staff
     }
 

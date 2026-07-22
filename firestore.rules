@@ -1,0 +1,163 @@
+rules_version = '2';
+
+// Kalaza Care — Firestore security rules.
+//
+// Every collection requires a real, active Firebase Auth session; role checks
+// look the caller's own `staff/{uid}` document up directly, which is why staff
+// documents are keyed by Firebase Auth UID (see FirestoreStaffRepository).
+//
+// Scope: these rules enforce the bright-line, cleanly-expressible boundaries —
+// who can touch which collections, and which fields a partial update may
+// touch. They deliberately do NOT try to re-implement the app's "24h grace
+// window then approval required" editorial policy for Vitals/Utility/Care
+// Notes — that's a soft workflow choice enforced client-side and reinforced
+// by the app's own audit log, not a hard security boundary; a legitimate
+// active staff member editing an old record isn't a security violation the
+// way an inactive account or wrong role touching Patients/MAR/Staff is.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function myStaffDoc() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+    function myRole() {
+      return myStaffDoc().data.role;
+    }
+    function isActiveStaff() {
+      return isSignedIn() && myStaffDoc().data.isActive == true;
+    }
+    function isSuperAdmin() {
+      return isActiveStaff() && myRole() == 'SUPER_ADMIN';
+    }
+    function isSupervisorOrAbove() {
+      return isActiveStaff() && (myRole() == 'SUPERVISOR' || myRole() == 'SUPER_ADMIN');
+    }
+    function onlyFieldsChanged(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    // ── Staff ────────────────────────────────────────────────────────────
+    // Doc ID == Firebase Auth UID. Everyone can read their own record (the
+    // app needs it right after login); only Super Admin manages the roster.
+    match /staff/{staffId} {
+      allow read: if isSignedIn() && (request.auth.uid == staffId || isSuperAdmin());
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ── Patients ─────────────────────────────────────────────────────────
+    // Every active role reads patients (needed everywhere, including the
+    // restricted Photo-Audit Admin resolving patient names). Direct
+    // add/edit is Super-Admin-only — everyone else goes through
+    // approvalRequests, which never touches this collection directly.
+    // No hard-delete feature exists in the app, so it's denied outright.
+    match /patients/{patientId} {
+      allow read: if isActiveStaff();
+      allow create, update: if isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // ── Vitals / Utility Records / Care Notes ───────────────────────────
+    // Any active staff member can log and directly edit these (the app's
+    // 24h-grace-then-approval policy is enforced client-side — see the
+    // file-level note above).
+    match /vitals/{id} {
+      allow read: if isActiveStaff();
+      allow create, update: if isActiveStaff();
+      allow delete: if false;
+    }
+    match /utilityRecords/{id} {
+      allow read: if isActiveStaff();
+      allow create, update: if isActiveStaff();
+      allow delete: if false;
+    }
+    match /careNotes/{id} {
+      allow read: if isActiveStaff();
+      allow create, update: if isActiveStaff();
+      allow delete: if false;
+    }
+
+    // ── Utility Items (Config) ───────────────────────────────────────────
+    // Read by anyone active (builds the Utility tab's dynamic columns);
+    // only Super Admin manages the item catalogue itself.
+    match /utilityItems/{id} {
+      allow read: if isActiveStaff();
+      allow create, update: if isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // ── Doctor Visits ─────────────────────────────────────────────────────
+    // Any active staff can schedule a visit or confirm one happened
+    // (confirmVisit touches only isConfirmed/isArchived). Full-field edits
+    // and deletes are Super-Admin-only in the client — everyone else's
+    // edit/delete requests go through approvalRequests instead.
+    match /doctorVisits/{id} {
+      allow read: if isActiveStaff();
+      allow create: if isActiveStaff();
+      allow update: if isSuperAdmin() || (isActiveStaff() && onlyFieldsChanged(['isConfirmed', 'isArchived']));
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── Medications (MAR) ─────────────────────────────────────────────────
+    // Any active staff can mark a dose administered or allotted (touching
+    // only those specific fields) — everything else (add/edit/delete a MAR
+    // entry outright) is Super-Admin-only.
+    match /medications/{id} {
+      allow read: if isActiveStaff();
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        isActiveStaff() && onlyFieldsChanged([
+          'status', 'administeredBy', 'administeredAt', 'administeredPhotoUrl', 'administeredPhotoExpiresAt',
+          'allotmentStatus', 'allottedById', 'allottedByName', 'allottedAt', 'allotmentPhotoUrl', 'allotmentPhotoExpiresAt'
+        ])
+      );
+    }
+
+    // ── Allotment Requests ────────────────────────────────────────────────
+    // Any active staff can flag a forgotten allotment; only Supervisor/Super
+    // Admin fulfill them (matches the Medicine tab's own visibility).
+    match /allotmentRequests/{id} {
+      allow read: if isActiveStaff();
+      allow create: if isActiveStaff();
+      allow update: if isSupervisorOrAbove();
+      allow delete: if false;
+    }
+
+    // ── Approval Queue ────────────────────────────────────────────────────
+    // Any active staff can submit a request; only Super Admin reviews the
+    // queue at all (it's the only role with that screen) and can
+    // approve/reject.
+    match /approvalRequests/{id} {
+      allow read: if isSuperAdmin();
+      allow create: if isActiveStaff();
+      allow update: if isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // ── Audit Log ─────────────────────────────────────────────────────────
+    // Append-only. Any active staff action can write an entry; nothing ever
+    // rewrites or removes one, and only Super Admin (the only role with the
+    // Audit Log screen) can read the trail back.
+    match /auditLog/{id} {
+      allow read: if isSuperAdmin();
+      allow create: if isActiveStaff();
+      allow update, delete: if false;
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────────
+    // Readable only by the actual recipient (by staff ID or by broadcast
+    // role) — client queries are scoped to match (see
+    // FirestoreNotificationRepository). Marking read may only touch isRead.
+    match /notifications/{id} {
+      allow read: if isActiveStaff() &&
+        (resource.data.recipientStaffId == request.auth.uid || resource.data.recipientRole == myRole());
+      allow create: if isActiveStaff();
+      allow update: if isActiveStaff() &&
+        (resource.data.recipientStaffId == request.auth.uid || resource.data.recipientRole == myRole()) &&
+        onlyFieldsChanged(['isRead']);
+      allow delete: if false;
+    }
+  }
+}

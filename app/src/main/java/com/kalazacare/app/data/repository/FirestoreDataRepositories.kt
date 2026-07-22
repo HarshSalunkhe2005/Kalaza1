@@ -440,13 +440,17 @@ private fun notificationFrom(id: String, d: Map<String, Any?>) = AppNotification
 
 class FirestoreNotificationRepository(private val db: FirebaseFirestore) : NotificationRepository {
     private val col = db.collection("notifications")
-    private fun matches(n: AppNotification, staffId: String, role: UserRole) =
-        (n.recipientStaffId.isNotEmpty() && n.recipientStaffId == staffId) ||
-        (n.recipientRole != null && n.recipientRole == role)
-    override suspend fun getForRecipient(staffId: String, role: UserRole): List<AppNotification> =
-        col.get().await().documents.mapNotNull { d -> d.data?.let { notificationFrom(d.id, it) } }
-            .filter { matches(it, staffId, role) }
+    // Two separately-scoped queries rather than one broad collection fetch filtered
+    // client-side: Firestore denies an entire list query outright if it could return
+    // even one document the caller's security rule wouldn't allow, so each query here
+    // is pre-filtered to exactly what the corresponding rule clause can verify.
+    override suspend fun getForRecipient(staffId: String, role: UserRole): List<AppNotification> {
+        val byStaff = col.whereEqualTo("recipientStaffId", staffId).get().await().documents
+        val byRole = col.whereEqualTo("recipientRole", role.name).get().await().documents
+        return (byStaff + byRole).distinctBy { it.id }
+            .mapNotNull { d -> d.data?.let { notificationFrom(d.id, it) } }
             .sortedByDescending { it.timestamp }
+    }
     override suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int =
         getForRecipient(staffId, role).count { !it.isRead }
     override suspend fun add(notification: AppNotification) {
