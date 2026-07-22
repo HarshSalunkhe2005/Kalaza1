@@ -13,6 +13,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.util.UUID
 
@@ -24,8 +26,6 @@ private data class LoginLookupRow(
     @SerialName("auth_email") val authEmail: String,
     @SerialName("is_active") val isActive: Boolean,
 )
-@Serializable
-private data class NameLowerParam(@SerialName("p_name_lower") val pNameLower: String)
 
 @Serializable
 data class StaffRow(
@@ -77,7 +77,8 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
         // `staff` table read (own row only) can't resolve name -> auth_email.
         // This narrow SECURITY DEFINER function exposes only the 3 fields
         // needed for that lookup instead of opening the whole table to anon.
-        val lookup = client.postgrest.rpc("staff_login_lookup", NameLowerParam(trimmedName.lowercase()))
+        val params = buildJsonObject { put("p_name_lower", trimmedName.lowercase()) }
+        val lookup = client.postgrest.rpc("staff_login_lookup", params)
             .decodeSingleOrNull<LoginLookupRow>() ?: return null
         if (!lookup.isActive || lookup.authEmail.isBlank()) return null
 
