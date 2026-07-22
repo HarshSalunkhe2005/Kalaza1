@@ -4,11 +4,12 @@
 Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Super Admins, a restricted photo-audit-only Admin, regular Staff, and Supervisor, with an intricate approval queue for staff-made edits and a two-checkpoint (allot → administer) medication workflow.
 
 ## Technology Stack
-- **Platform:** Android (Min SDK 24, Target SDK 34)
+- **Platform:** Android (Min SDK 26, Target SDK 35)
 - **Language:** Kotlin
 - **UI Framework:** Jetpack Compose (Material 3)
 - **Architecture:** MVVM (Model-View-ViewModel) with StateFlow
-- **Data Source:** In-memory Mock Data (Backend ready for future Firebase/SQL integration)
+- **Backend:** Supabase — Postgres (via `postgrest-kt`) for all app data, Supabase Auth for login/staff accounts, Supabase Storage for photo evidence. Schema + Row Level Security policies live in `supabase/seed.sql` at the repo root.
+- **Push Notifications:** Firebase Cloud Messaging only (kept independent of the rest of the backend — no Firestore/Firebase Auth/Firebase Storage remain in the project).
 
 ---
 
@@ -19,7 +20,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - **Admin Role** (`UserRole.ADMIN`, new, restricted): A completely separate, narrow role. On login it's routed straight to a standalone **Photo Audit** screen (`Routes.PHOTO_AUDIT`, no bottom nav) that lists every medicine allotment/administration evidence photo across all patients, read-only. No dashboard, no approvals, no staff config, no other access at all. `SessionManager.isPhotoAdmin()` checks this role.
 - **Staff Role (Regular):** Has limited access. Cannot view the Summary Tab. Any edits to patient data generate an Approval Request instead of saving directly.
 - **Supervisor Role:** Same dashboard and permissions as Regular Staff, plus an additional **Medicine** tab for allotting doses ahead of administration (see workflow below). MAR add/edit/delete is Super Admin-only — Supervisor cannot touch MAR entries directly, only the allotment round in the Medicine tab.
-- **Login is by Name, not Email.** The login screen asks for the staff member's Name; `AuthRepository.login` matches `Staff.name` case-insensitively. `Staff.email` still exists as a separate contact-info field (shown in Config), it's just no longer the login credential.
+- **Login is by Name, not Email.** The login screen asks for the staff member's Name; `AuthRepository.login` matches `Staff.name` case-insensitively, looks up a synthetic per-staff email, and authenticates for real against Supabase Auth (hashed password, server-side). `Staff.email` still exists as a separate contact-info field (shown in Config), it's just never the login credential. Super Admin assigns each staff member's password at creation time (`StaffRepository.addStaff`).
 
 ### 2. Navigation & UI Shell
 - **Bottom Navigation Bar:** Context-aware based on the logged-in user. (Super Admin sees: Patients, Approvals, Audit Log, Config, Summary. Supervisor sees: Patients, Medicine. Regular Staff sees: Patients. The restricted Admin role sees no bottom nav at all — it only ever has the single Photo Audit screen.)
@@ -35,7 +36,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
   - **Doctor Visits Tab:** Log specific instructions and notes left by visiting doctors, now including a visit **time** alongside the date. Visits can also be **deleted** — Super Admin deletes directly (logged to Audit); every other role's delete request goes through the Approval Queue first.
   - **Care Notes Tab:** Add general nursing/care notes for the patient, and edit an existing note via its pencil icon — same 24h-grace-then-approval policy as Vitals/Utility.
 - **Medicine Tab (Supervisor only):** A facility-wide "rounds" view of every dose still awaiting allotment today, plus any pending allotment requests raised by regular staff. Allotting a dose requires photo evidence. This is unchanged by the MAR-CRUD restriction above — allotment rounds and MAR entry CRUD are separate concerns.
-- **Photo Audit (restricted Admin role only):** A standalone, read-only screen (`ui/photoaudit/PhotoAuditScreen.kt`) listing every allotment/administration evidence photo across all patients — medicine name, patient, staff, timestamp, and whether the 48h retention window has expired. This is the *only* screen this role ever sees.
+- **Photo Audit (restricted Admin role only):** A standalone, read-only screen (`ui/photoaudit/PhotoAuditScreen.kt`) listing every allotment/administration evidence photo across all patients — medicine name, patient, staff, timestamp, and whether the 48h retention window has expired. This is the *only* screen this role ever sees. Photo capture is real (device camera via `CameraCaptureFile` + `PhotoConfirmDialog`), uploaded to Supabase Storage (`PhotoUploader`) — no mock URLs remain. The 48h figure is still just a client-computed expiry timestamp shown in the UI; nothing yet actually deletes the file from storage at 48h (see Future Scope).
 
 ### 4. Admin Workflows
 - **Approval Queue:** A dedicated screen where Admins can review, approve, or reject field-level changes requested by Staff. Approving applies the change directly to the Patient record (not just the request's status) and logs to Audit; rejecting also logs to Audit.
@@ -52,7 +53,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 ### 6. In-App Notification System
 - A real Notifications screen (bell icon → badge count → list), reachable from Dashboard and the Medicine tab.
 - Notifications are generated at the actual point of the event, not just seeded: a staff edit request notifies all Admins; an approval/rejection notifies the requester; a supervisor allotment request notifies all Supervisors; fulfilling one notifies the requester back. Tapping a notification marks it read and navigates to the relevant screen (Approval Queue, Medicine tab, or the specific patient's profile).
-- This is in-app only — no real push yet (see Future Scope).
+- **Push delivery (client side is done, server-side trigger is not):** `KalazaMessagingService` requests the `POST_NOTIFICATIONS` permission, registers/refreshes the device's FCM token to the staff row, displays a real system notification (foreground/background/killed, all states), and deep-links a tap back into the right screen via `MainActivity.onNewIntent`. What's missing is the piece that actually *fires* a push when a `notifications` row is created — the old Firestore-triggered Cloud Function was removed with the Supabase migration and nothing replaced it yet (see Future Scope). Until that exists, notifications only appear live if the recipient already has the app open.
 
 ### 7. Input Validation
 - Phone numbers (staff phone, patient emergency phone) only accept digits as typed and require exactly 10 before the form can submit.
@@ -95,26 +96,29 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 
 ## What is Remaining (Future Scope)
 
-### 1. Backend Integration (High Priority)
-- The app currently relies on `MockData.kt` and in-memory lists within `Repositories.kt`.
-- **Action Required:** Implement Firebase Firestore (or a REST API with SQL) for real persistent data storage.
+Backend integration and real authentication (previously the two highest-priority items here) are both **done** — see Technology Stack and section 1 above. What's left:
 
-### 2. Real Authentication (High Priority)
-- The mock login accepts any password for active emails.
-- **Action Required:** Integrate Firebase Auth (or JWT-based custom auth) to securely authenticate Staff and Admins.
+### 1. Push Notification Send-Side Trigger (High Priority)
+- Everything on the client is wired (permission request, FCM token registration, foreground/background/killed display, deep-link on tap) — see "In-App Notification System" above. What's missing is the piece that fires a push whenever a `notifications` row is inserted.
+- The original plan was a Cloud Function triggered on Firestore document creation; it was removed when the backend moved to Supabase and never had a replacement built. Real options going forward: a Supabase Edge Function + Database Webhook (needs the Blaze-equivalent decision revisited for Supabase, though Supabase's free tier doesn't gate this the way Firebase's did), or a scheduled external poller (e.g. GitHub Actions) hitting the FCM HTTP v1 API.
+- **Action Required:** pick one of the above and implement it.
 
-### 3. Push Notifications (Medium Priority)
-- The in-app Notification system (bell → screen) is fully built and generates real notifications at real trigger points (see "In-App Notification System" above), but they only appear when the app is open — there's no actual push delivery when the app is backgrounded or closed, and no "before-schedule allotment reminder" timer yet (that would need a scheduled job).
-- **Action Required:** Integrate Firebase Cloud Messaging (FCM) so `NotificationRepository.add(...)` also triggers a real push, and add a scheduled job for the pre-deadline allotment reminder.
+### 2. Photo Evidence Auto-Deletion (Medium Priority)
+- Upload itself is real (Supabase Storage via `PhotoUploader`), and the UI computes/shows a 48h expiry. Nothing actually deletes the file from the bucket at 48h yet.
+- **Action Required:** a Supabase Storage lifecycle/cron mechanism (Storage doesn't have GCS-style native object lifecycle rules — likely a scheduled Edge Function or external cron calling the Storage API to delete objects older than 48h).
 
-### 3a. Photo Evidence Upload (Medium Priority)
-- Allotment and administration checkpoints currently "capture" a photo via `PhotoCapture.kt`, which just mints a mock URL and a 48h expiry timestamp — no camera or upload actually happens.
-- **Action Required:** Wire an actual camera/gallery picker and backend storage (e.g. Firebase Storage), plus a scheduled job to delete evidence photos after 48h as required by policy.
+### 3. Real-Time Data Sync (Medium Priority)
+- Every repository does one-shot fetches (`select()` on screen load/resume), not live subscriptions — another staff member's change won't appear until the current user navigates back to that screen.
+- **Action Required:** adopt Supabase Realtime (`realtime-kt`) for the screens where staleness matters most (Dashboard, Medicine tab, Notifications, Approval Queue).
 
-### 4. Data Validation & Error Handling (Medium Priority)
-- Phone (10 digits), age (1-120), and email format are now validated client-side (see "Input Validation" above). Still to add: server-side re-validation once a backend exists, and validation for any medical ID fields introduced later.
+### 4. Test Account Coverage (Low Priority)
+- `supabase/seed.sql` currently seeds only Super Admin (Somnath) and Admin (Arti) accounts. There's no seeded `STAFF` or `SUPERVISOR` login, so the restricted-permission paths (approval requests, allotment requests, RLS column-restriction triggers) haven't been exercised end-to-end with a non-admin account yet.
+- **Action Required:** create at least one more Auth user at `STAFF` or `SUPERVISOR` role and add it to the seed script.
 
-### 5. Offline Support / Caching (Low Priority)
+### 5. Data Validation & Error Handling (Medium Priority)
+- Client-side validation (10-digit phone, age 1–120, email format) is done — see "Input Validation" above. Server-side re-validation now exists too, via Postgres RLS + the column-restriction triggers in `supabase/seed.sql`'s schema (e.g. non-Super-Admins can only touch specific fields on `medications`/`doctor_visits`/`notifications`/`staff`). Still to add: validation for any medical ID fields introduced later.
+
+### 6. Offline Support / Caching (Low Priority)
 - Implement Room Database to cache patient data locally so the app remains partially usable during network outages.
 
 ---
