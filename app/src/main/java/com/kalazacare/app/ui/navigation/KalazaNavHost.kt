@@ -65,7 +65,10 @@ private fun ReloadOnResume(onResume: () -> Unit) {
 }
 
 @Composable
-fun KalazaNavHost() {
+fun KalazaNavHost(
+    pendingDeepLink: String? = null,
+    onDeepLinkConsumed: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -104,6 +107,16 @@ fun KalazaNavHost() {
         if (route.isNotBlank()) navController.navigate(route)
     }
 
+    // A push notification tapped while already logged in (app foreground or
+    // background, not killed) navigates straight there. If the app was killed,
+    // Login shows first and its onLoginSuccess handles the pending route instead.
+    LaunchedEffect(pendingDeepLink, currentRoute) {
+        if (pendingDeepLink != null && SessionManager.isLoggedIn() && currentRoute != Routes.LOGIN) {
+            onNotificationTarget(pendingDeepLink)
+            onDeepLinkConsumed()
+        }
+    }
+
     // Routes where bottom nav should be visible
     val bottomNavRoutes = setOf(
         Routes.DASHBOARD, Routes.APPROVAL_QUEUE,
@@ -132,8 +145,14 @@ fun KalazaNavHost() {
                     viewModel = vm,
                     onLoginSuccess = {
                         // The restricted, photo-audit-only Admin role skips the normal
-                        // Dashboard/bottom-nav flow entirely — it only ever sees Photo Audit.
-                        val destination = if (SessionManager.isPhotoAdmin()) Routes.PHOTO_AUDIT else Routes.DASHBOARD
+                        // Dashboard/bottom-nav flow entirely — it only ever sees Photo Audit,
+                        // regardless of what a pending notification pointed at.
+                        val destination = when {
+                            SessionManager.isPhotoAdmin() -> Routes.PHOTO_AUDIT
+                            pendingDeepLink != null -> pendingDeepLink
+                            else -> Routes.DASHBOARD
+                        }
+                        if (pendingDeepLink != null) onDeepLinkConsumed()
                         navController.navigate(destination) {
                             popUpTo(Routes.LOGIN) { inclusive = true }
                         }

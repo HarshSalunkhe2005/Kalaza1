@@ -145,4 +145,6 @@ interface StaffRepository {
     suspend fun unrevokeStaff(id: String)
     suspend fun deleteStaff(id: String)
     suspend fun updateStaff(staff: Staff)
+    /** Called after login and whenever Firebase Messaging rotates this device's token. */
+    suspend fun updateFcmToken(staffId: String, token: String)
 }

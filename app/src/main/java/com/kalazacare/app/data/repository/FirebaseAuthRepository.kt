@@ -26,6 +26,7 @@ private fun Staff.toFirestoreMap(): Map<String, Any> = mapOf(
     "isActive" to isActive,
     "joinedDate" to joinedDate.toString(),
     "authEmail" to authEmail,
+    "fcmToken" to fcmToken,
 )
 
 private fun staffFromDocument(id: String, data: Map<String, Any?>): Staff = Staff(
@@ -37,6 +38,7 @@ private fun staffFromDocument(id: String, data: Map<String, Any?>): Staff = Staf
     isActive = data["isActive"] as? Boolean ?: true,
     joinedDate = (data["joinedDate"] as? String)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now(),
     authEmail = data["authEmail"] as? String ?: "",
+    fcmToken = data["fcmToken"] as? String ?: "",
 )
 
 /**
@@ -164,5 +166,9 @@ class FirestoreStaffRepository(
 
     override suspend fun updateStaff(staff: Staff) {
         staffCollection.document(staff.id).set(staff.toFirestoreMap()).await()
+    }
+
+    override suspend fun updateFcmToken(staffId: String, token: String) {
+        staffCollection.document(staffId).update("fcmToken", token).await()
     }
 }

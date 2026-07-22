@@ -68,9 +68,12 @@ data class Staff(
     val joinedDate: LocalDate = LocalDate.now(),
     // Synthetic email used only to authenticate this staff member against Firebase
     // Auth's email/password provider — login itself is still by [name] + password;
-    // this never appears in the UI. Derived deterministically from name + id at
-    // creation time. Unused by the mock repositories.
+    // this never appears in the UI.
     val authEmail: String = "",
+    // This device's current push token, refreshed on every login and whenever
+    // Firebase Messaging rotates it. Used server-side (Cloud Function) to target
+    // a push at this specific staff member.
+    val fcmToken: String = "",
 )
 
 // ─────────────────────────────────────────────────────────────────────────────

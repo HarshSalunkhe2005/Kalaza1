@@ -3,6 +3,7 @@ package com.kalazacare.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.messaging.FirebaseMessaging
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
 import com.kalazacare.app.util.SessionManager
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -17,7 +19,10 @@ import java.time.LocalDateTime
 // Login
 // ─────────────────────────────────────────────────────────────────────────────
 
-class LoginViewModel(private val authRepo: AuthRepository) : ViewModel() {
+class LoginViewModel(
+    private val authRepo: AuthRepository,
+    private val staffRepo: StaffRepository,
+) : ViewModel() {
     private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)
     val loginState: StateFlow<LoginState> = _loginState.asStateFlow()
 
@@ -32,8 +37,21 @@ class LoginViewModel(private val authRepo: AuthRepository) : ViewModel() {
             if (staff != null) {
                 SessionManager.setCurrentStaff(staff)
                 _loginState.value = LoginState.Success(staff)
+                // FCM generates this device's token at app startup regardless of login
+                // state, so onNewToken may never fire again post-login — fetch and save
+                // the current token explicitly here instead of relying on it.
+                registerPushToken(staff.id)
             } else {
                 _loginState.value = LoginState.Error("Invalid credentials or account inactive")
+            }
+        }
+    }
+
+    private fun registerPushToken(staffId: String) {
+        viewModelScope.launch {
+            runCatching {
+                val token = FirebaseMessaging.getInstance().token.await()
+                staffRepo.updateFcmToken(staffId, token)
             }
         }
     }
@@ -1191,7 +1209,7 @@ class KalazaViewModelFactory(
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
-        modelClass.isAssignableFrom(LoginViewModel::class.java)       -> LoginViewModel(authRepo) as T
+        modelClass.isAssignableFrom(LoginViewModel::class.java)       -> LoginViewModel(authRepo, staffRepo) as T
         modelClass.isAssignableFrom(DashboardViewModel::class.java)   -> DashboardViewModel(patientRepo, medRepo, approvalRepo) as T
         modelClass.isAssignableFrom(PatientViewModel::class.java)     -> PatientViewModel(patientRepo, approvalRepo, auditRepo, notificationRepo) as T
         modelClass.isAssignableFrom(VitalsViewModel::class.java)      -> VitalsViewModel(vitalsRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
