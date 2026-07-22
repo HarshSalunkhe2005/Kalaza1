@@ -6,7 +6,7 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Minimal OOXML (.xlsx) writer with no third-party dependency — an xlsx is
- * just a zip of small XML parts, and a mock report only needs plain text/
+ * just a zip of small XML parts, and this report only needs plain text/
  * number cells (via inline strings), not styling or formulas.
  */
 class XlsxWriter {
