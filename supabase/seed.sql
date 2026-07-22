@@ -4,14 +4,11 @@
 -- doctor-visit confirm date-gating, approval-queue staleness, an archived
 -- patient, and a deactivated utility item with historical data still attached.
 --
--- BEFORE RUNNING — create two Auth users (they can't be created by plain SQL,
--- Supabase's Auth needs its own admin API for that):
---   Dashboard → Authentication → Users → Add user
---     1. email: kavita.seed@staff.kalazacare.internal   password: 123456
---        (check "Auto Confirm User")
---     2. email: rahul.seed@staff.kalazacare.internal    password: 123456
---        (check "Auto Confirm User")
---   UUIDs already filled in below (Kavita: 34f51254-..., Rahul: 86083451-...).
+-- The two Auth users created earlier for "Kavita"/"Rahul" testing are reused
+-- here as the Super Admin and Admin accounts instead — no new Auth users
+-- needed. Their underlying auth_email strings are cosmetic leftovers from
+-- that naming (login is always by the "name" field below, never the email),
+-- so they're harmless to keep as-is.
 --
 -- Safe to run once against a fresh schema. Re-running will fail on the
 -- unique staff name / patient uniqueness lookups below being skipped (it
@@ -19,8 +16,8 @@
 
 do $$
 declare
-  kavita_id uuid := '34f51254-5c7e-4515-8d75-285515345f9b';
-  rahul_id  uuid := '86083451-aa5f-4f75-89be-19d107f67fbb';
+  somnath_id uuid := '34f51254-5c7e-4515-8d75-285515345f9b'; -- was "Kavita"
+  arti_id    uuid := '86083451-aa5f-4f75-89be-19d107f67fbb'; -- was "Rahul"
 
   ramesh_id     uuid := gen_random_uuid();
   sulochana_id  uuid := gen_random_uuid();
@@ -43,8 +40,8 @@ declare
 begin
   -- ── Staff ──────────────────────────────────────────────────────────────
   insert into staff (id, name, email, role, phone, is_active, joined_date, auth_email, fcm_token) values
-    (kavita_id, 'Kavita', 'kavita@kalazacare.com', 'STAFF', '+91 98765 00002', true, '2023-06-15', 'kavita.seed@staff.kalazacare.internal', ''),
-    (rahul_id,  'Rahul',  'rahul@kalazacare.com',  'SUPERVISOR', '+91 98765 00003', true, '2024-01-10', 'rahul.seed@staff.kalazacare.internal', '');
+    (somnath_id, 'Somnath', 'somnath@kalazacare.com', 'SUPER_ADMIN', '+91 98765 00001', true, '2023-01-01', 'kavita.seed@staff.kalazacare.internal', ''),
+    (arti_id,    'Arti',    'arti@kalazacare.com',    'ADMIN',       '+91 98765 00002', true, '2023-06-15', 'rahul.seed@staff.kalazacare.internal', '');
 
   -- ── Utility Items (one deactivated after use, historical data preserved) ─
   insert into utility_items (id, name, unit, display_order, is_active) values
@@ -93,16 +90,16 @@ begin
 
   -- ── Vitals (24h-grace edge case: one recent, one old) ───────────────────
   insert into vitals (patient_id, date, time, pulse, bp, spo2, temperature, sugar_fasting, sugar_pp, signed_by, created_at) values
-    (ramesh_id, current_date, '08:10', '79', '139/89', '97', '98.7', '145', '210', 'Kavita', now()),
-    (ramesh_id, current_date - 5, '08:00', '76', '138/88', '97', '98.4', '142', '200', 'Kavita', now() - interval '5 days'),
-    (sulochana_id, current_date, '08:00', '74', '128/82', '97', '98.5', '', '', 'Rahul', now());
+    (ramesh_id, current_date, '08:10', '79', '139/89', '97', '98.7', '145', '210', 'Somnath', now()),
+    (ramesh_id, current_date - 5, '08:00', '76', '138/88', '97', '98.4', '142', '200', 'Somnath', now() - interval '5 days'),
+    (sulochana_id, current_date, '08:00', '74', '128/82', '97', '98.5', '', '', 'Arti', now());
 
   -- ── Medications (OVERDUE-on-read, ADMINISTERED, NOT_ALLOTTED, flagged) ──
   insert into medications (patient_id, medicine_name, dose, quantity, schedule_time, scheduled_date, status, administered_by, administered_at, notes, allotment_status, allotted_by_id, allotted_by_name, allotted_at, allotment_photo_url, allotment_photo_expires_at, administered_photo_url, administered_photo_expires_at) values
     (ramesh_id, 'Aspirin', '75mg', '1 tablet', '06:00', current_date, 'PENDING', '', null, '',
-      'ALLOTTED', kavita_id, 'Kavita', now() - interval '3 hours', 'https://example.com/seed-evidence/allot1.jpg', now() + interval '45 hours', '', null),
-    (ramesh_id, 'Metformin', '500mg', '1 tablet', '08:00', current_date, 'ADMINISTERED', 'Kavita', now() - interval '2 hours',
-      '', 'ALLOTTED', kavita_id, 'Kavita', now() - interval '2.25 hours', 'https://example.com/seed-evidence/allot2.jpg', now() + interval '46 hours',
+      'ALLOTTED', somnath_id, 'Somnath', now() - interval '3 hours', 'https://example.com/seed-evidence/allot1.jpg', now() + interval '45 hours', '', null),
+    (ramesh_id, 'Metformin', '500mg', '1 tablet', '08:00', current_date, 'ADMINISTERED', 'Somnath', now() - interval '2 hours',
+      '', 'ALLOTTED', somnath_id, 'Somnath', now() - interval '2.25 hours', 'https://example.com/seed-evidence/allot2.jpg', now() + interval '46 hours',
       'https://example.com/seed-evidence/admin1.jpg', now() + interval '46 hours'),
     (vijay_id, 'Tiotropium Inhaler', '1 puff', '1 dose', '20:00', current_date, 'PENDING', '', null, '',
       'NOT_ALLOTTED', null, '', null, '', null, '', null);
@@ -111,18 +108,18 @@ begin
     (levodopa_med_id, indu_id, 'Levodopa/Carbidopa', '100/25mg', '1 tablet', '12:00', current_date, 'PENDING', '', null,
       'Give with food to reduce nausea', 'NOT_ALLOTTED', null, '', null, '', null, '', null);
 
-  -- ── Allotment Request (flagged by staff, awaiting Supervisor) ───────────
+  -- ── Allotment Request (flagged by staff, awaiting Supervisor+) ──────────
   insert into allotment_requests (medication_entry_id, patient_id, patient_name, medicine_name, dose, scheduled_time, requested_by_id, requested_by_name, status, fulfilled_by_id, fulfilled_by_name, timestamp, fulfilled_at) values
-    (levodopa_med_id, indu_id, 'Indu Apte', 'Levodopa/Carbidopa', '100/25mg', '12:00', kavita_id, 'Kavita', 'PENDING', null, '', now(), null);
+    (levodopa_med_id, indu_id, 'Indu Apte', 'Levodopa/Carbidopa', '100/25mg', '12:00', somnath_id, 'Somnath', 'PENDING', null, '', now(), null);
 
   -- ── Utility Records (incl. a deactivated item still logged historically) ─
   insert into utility_records (patient_id, date, time, quantities, issued_to_caregiver, issued_by_supervisor, checked_by, created_at) values
     (ramesh_id, current_date, '07:00',
       jsonb_build_object(mask_id::text, 2, diaper_pant_id::text, 3, cotton_id::text, 5),
-      'Kavita', 'Rahul', 'Somnath', now()),
+      'Somnath', 'Arti', 'Somnath', now()),
     (sulochana_id, current_date - 3, '07:00',
       jsonb_build_object(wipes_id::text, 10, gloves_id::text, 2),
-      'Rahul', 'Somnath', '', now() - interval '3 days');
+      'Arti', 'Somnath', '', now() - interval '3 days');
 
   -- ── Doctor Visits (future unconfirmed, past unconfirmed, past confirmed+archived) ─
   insert into doctor_visits (patient_id, doctor_name, specialty, date, time, notes, next_visit_date, prescription_changes, is_confirmed, is_archived) values
@@ -132,32 +129,32 @@ begin
 
   -- ── Care Notes (one recent, one old) ────────────────────────────────────
   insert into care_notes (patient_id, staff_id, staff_name, timestamp, note) values
-    (ramesh_id, kavita_id, 'Kavita', now() - interval '3 hours',
+    (ramesh_id, somnath_id, 'Somnath', now() - interval '3 hours',
       'Patient had a good morning. Ate full breakfast. Complained of slight knee pain — applied cold pack.'),
-    (sulochana_id, rahul_id, 'Rahul', now() - interval '30 hours',
+    (sulochana_id, arti_id, 'Arti', now() - interval '30 hours',
       'Mild confusion around 6 PM. Redirected gently with familiar photos. Settled within 20 minutes.');
 
   -- ── Approval Requests (one still valid, one already stale) ─────────────
   insert into approval_requests (entity_type, entity_id, action, patient_id, patient_name, requested_by_id, requested_by_name, field_changed, old_value, new_value, status, reviewed_by_id, reviewed_by_name, timestamp, reviewed_at, rejection_reason) values
-    ('PATIENT', '', 'EDIT', sulochana_id, 'Sulochana Bhide', kavita_id, 'Kavita', 'Current Issues',
+    ('PATIENT', '', 'EDIT', sulochana_id, 'Sulochana Bhide', somnath_id, 'Somnath', 'Current Issues',
       'Confusion episodes in the evening, fall risk',
       'Confusion episodes throughout the day, high fall risk - bed rails requested',
       'PENDING', null, '', now() - interval '2 hours', null, ''),
-    ('PATIENT', '', 'EDIT', vijay_id, 'Vijay Gokhale', rahul_id, 'Rahul', 'Allergies',
+    ('PATIENT', '', 'EDIT', vijay_id, 'Vijay Gokhale', arti_id, 'Arti', 'Allergies',
       'Sulfa drugs, Latex (already outdated on purpose)',
       'Sulfa drugs, Latex, Penicillin',
       'PENDING', null, '', now() - interval '5 hours', null, '');
 
   -- ── Audit Log ────────────────────────────────────────────────────────────
   insert into audit_log (action, performed_by_id, performed_by_name, target_patient_id, target_patient_name, details, timestamp, icon_name) values
-    ('Medication Administered', kavita_id, 'Kavita', ramesh_id::text, 'Ramesh Kulkarni', 'Metformin 500mg administered', now() - interval '2 hours', 'medication'),
-    ('Vitals Recorded', kavita_id, 'Kavita', ramesh_id::text, 'Ramesh Kulkarni', 'BP: 139/89, Pulse: 79, SPO2: 97%, Temp: 98.7°F', now() - interval '2.2 hours', 'monitor_heart');
+    ('Medication Administered', somnath_id, 'Somnath', ramesh_id::text, 'Ramesh Kulkarni', 'Metformin 500mg administered', now() - interval '2 hours', 'medication'),
+    ('Vitals Recorded', somnath_id, 'Somnath', ramesh_id::text, 'Ramesh Kulkarni', 'BP: 139/89, Pulse: 79, SPO2: 97%, Temp: 98.7°F', now() - interval '2.2 hours', 'monitor_heart');
 
   -- ── Notifications (targeted + broadcast, read + unread) ────────────────
   insert into notifications (recipient_staff_id, recipient_role, type, title, message, timestamp, is_read, target_route) values
-    (null, 'SUPER_ADMIN', 'APPROVAL_REQUESTED', 'New Edit Request', 'Kavita requested a change to Sulochana Bhide''s Current Issues', now() - interval '2 hours', false, 'approval'),
-    (null, 'SUPERVISOR', 'ALLOTMENT_REQUESTED', 'Allotment Needed', 'Kavita flagged Levodopa/Carbidopa for Indu Apte as not yet allotted', now(), false, 'medicine'),
-    (kavita_id, null, 'APPROVAL_APPROVED', 'Edit Request Approved', 'Your Emergency Phone change for Ramesh Kulkarni was approved', now() - interval '18 hours', true, 'patient/' || ramesh_id::text);
+    (null, 'SUPER_ADMIN', 'APPROVAL_REQUESTED', 'New Edit Request', 'Arti requested a change to Vijay Gokhale''s Allergies', now() - interval '5 hours', false, 'approval'),
+    (null, 'SUPERVISOR', 'ALLOTMENT_REQUESTED', 'Allotment Needed', 'Somnath flagged Levodopa/Carbidopa for Indu Apte as not yet allotted', now(), false, 'medicine'),
+    (somnath_id, null, 'APPROVAL_APPROVED', 'Edit Request Approved', 'Your Emergency Phone change for Ramesh Kulkarni was approved', now() - interval '18 hours', true, 'patient/' || ramesh_id::text);
 
-  raise notice 'Seed complete. New staff logins: Kavita / 123456 (Staff), Rahul / 123456 (Supervisor)';
+  raise notice 'Seed complete. Logins: Somnath / (your Auth password) — Super Admin, Arti / (your Auth password) — Admin';
 end $$;
