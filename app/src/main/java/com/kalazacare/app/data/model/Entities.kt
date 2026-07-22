@@ -102,6 +102,11 @@ data class MedicationEntry(
     val quantity: String = "",
     val scheduleTime: LocalTime = LocalTime.now(),
     val scheduledDate: LocalDate = LocalDate.now(),
+    // Most medications repeat every day — for those, [scheduledDate] is just
+    // "the day this entry was created" and is ignored when deciding whether
+    // it's due today. Set this false only for a genuine one-off dose that
+    // should appear solely on [scheduledDate].
+    val isRecurring: Boolean = true,
     val status: MedStatus = MedStatus.PENDING,
     val administeredBy: String = "",
     val administeredAt: LocalDateTime? = null,

@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
@@ -662,6 +663,12 @@ private fun AddMedicationDialog(
     var quantity by remember { mutableStateOf("") }
     var scheduleTime by remember { mutableStateOf(java.time.LocalTime.of(8, 0)) }
     var notes by remember { mutableStateOf("") }
+    var isRecurring by remember { mutableStateOf(true) }
+    var scheduledDate by remember { mutableStateOf(java.time.LocalDate.now()) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = scheduledDate.toEpochDay() * 86_400_000L
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -675,6 +682,24 @@ private fun AddMedicationDialog(
                 }
                 Text("Time:", style = MaterialTheme.typography.bodyMedium)
                 com.kalazacare.app.ui.components.TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Give every day", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Turn off for a one-time dose on a specific date",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = isRecurring, onCheckedChange = { isRecurring = it })
+                }
+                if (!isRecurring) {
+                    OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Date: ${scheduledDate.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))}")
+                    }
+                }
                 OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
             }
         },
@@ -688,6 +713,8 @@ private fun AddMedicationDialog(
                             dose = dose,
                             quantity = quantity,
                             scheduleTime = scheduleTime,
+                            scheduledDate = if (isRecurring) java.time.LocalDate.now() else scheduledDate,
+                            isRecurring = isRecurring,
                             notes = notes,
                         )
                     )
@@ -700,6 +727,25 @@ private fun AddMedicationDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        scheduledDate = java.time.LocalDate.ofEpochDay(millis / 86_400_000L)
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
