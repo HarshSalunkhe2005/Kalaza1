@@ -228,6 +228,9 @@ data class UtilityItem(
 enum class NotificationType {
     APPROVAL_REQUESTED, APPROVAL_APPROVED, APPROVAL_REJECTED,
     ALLOTMENT_REQUESTED, ALLOTMENT_FULFILLED,
+    // Fired by the scheduled medication-watchdog Edge Function, not from
+    // anywhere in the app itself.
+    MEDICATION_REMINDER, MEDICATION_MISSED_ALERT, MEDICATION_MISSED_ESCALATION,
 }
 
 data class AppNotification(
