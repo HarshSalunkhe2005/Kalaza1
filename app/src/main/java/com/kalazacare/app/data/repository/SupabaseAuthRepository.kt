@@ -66,7 +66,6 @@ private fun synthesizeAuthEmail(name: String): String {
 }
 
 class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepository {
-    private var loggedIn: Staff? = null
     private val logoutScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override suspend fun login(name: String, password: String): Staff? {
@@ -91,9 +90,7 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
             val row = client.postgrest.from(STAFF_TABLE)
                 .select { filter { eq("id", lookup.id) } }
                 .decodeSingleOrNull<StaffRow>() ?: return null
-            val staff = row.toDomain()
-            loggedIn = staff
-            staff
+            row.toDomain()
         } catch (_: Exception) {
             null
         }
@@ -101,10 +98,7 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
 
     override fun logout() {
         logoutScope.launch { runCatching { client.auth.signOut() } }
-        loggedIn = null
     }
-
-    override fun currentStaff(): Staff? = loggedIn
 }
 
 class SupabaseStaffRepository(private val client: SupabaseClient) : StaffRepository {
@@ -159,10 +153,6 @@ class SupabaseStaffRepository(private val client: SupabaseClient) : StaffReposit
         // left orphaned but harmless: with no staff row, login() above can never
         // resolve it back to a Staff, so the account can't sign in again.
         client.postgrest.from(STAFF_TABLE).delete { filter { eq("id", id) } }
-    }
-
-    override suspend fun updateStaff(staff: Staff) {
-        client.postgrest.from(STAFF_TABLE).update(staff.toRow()) { filter { eq("id", staff.id) } }
     }
 
     override suspend fun updateFcmToken(staffId: String, token: String) {

@@ -1,25 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Kalaza Care</string>
-    <string name="tagline">A Place Like Home</string>
-    <string name="login">Login</string>
-    <string name="logout">Logout</string>
-    <string name="dashboard">Dashboard</string>
-    <string name="patients">Patients</string>
-    <string name="vitals">Vitals</string>
-    <string name="medication">Medication</string>
-    <string name="utilities">Utilities</string>
-    <string name="summary">Summary</string>
-    <string name="config">Config</string>
-    <string name="approvals">Approvals</string>
-    <string name="audit_log">Audit Log</string>
-    <string name="add_patient">Add Patient</string>
-    <string name="edit_patient">Edit Patient</string>
-    <string name="save">Save</string>
-    <string name="cancel">Cancel</string>
-    <string name="approve">Approve</string>
-    <string name="reject">Reject</string>
-    <string name="pending">Pending</string>
-    <string name="approved">Approved</string>
-    <string name="rejected">Rejected</string>
 </resources>

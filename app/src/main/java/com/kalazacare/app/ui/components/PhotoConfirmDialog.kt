@@ -41,7 +41,7 @@ import java.time.LocalDateTime
 
 /**
  * Photo-evidence gate used before marking a dose allotted or administered.
- * Launches the real camera, uploads the capture to Firebase Storage, and only
+ * Launches the real camera, uploads the capture to Supabase Storage, and only
  * enables Confirm once that upload succeeds — [onConfirm] receives the real
  * download URL and expiry, not a mock one.
  */

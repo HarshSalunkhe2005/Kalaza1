@@ -27,8 +27,7 @@ import com.kalazacare.app.ui.NotificationViewModel
 import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.theme.KalazaRed
-import java.time.LocalDateTime
-import java.time.temporal.ChronoUnit
+import com.kalazacare.app.util.timeAgo
 
 @Composable
 fun NotificationScreen(
@@ -140,20 +139,12 @@ private fun NotificationCard(
 }
 
 private fun iconForType(type: NotificationType): ImageVector = when (type) {
-    NotificationType.APPROVAL_REQUESTED  -> Icons.Default.CheckCircle
-    NotificationType.APPROVAL_APPROVED   -> Icons.Default.CheckCircle
-    NotificationType.APPROVAL_REJECTED   -> Icons.Default.Cancel
-    NotificationType.ALLOTMENT_REQUESTED -> Icons.Default.Medication
-    NotificationType.ALLOTMENT_FULFILLED -> Icons.Default.Medication
-}
-
-private fun LocalDateTime.timeAgo(): String {
-    val now = LocalDateTime.now()
-    val minutes = ChronoUnit.MINUTES.between(this, now)
-    if (minutes < 1) return "Just now"
-    if (minutes < 60) return "$minutes mins ago"
-    val hours = ChronoUnit.HOURS.between(this, now)
-    if (hours < 24) return "$hours hours ago"
-    val days = ChronoUnit.DAYS.between(this, now)
-    return "$days days ago"
+    NotificationType.APPROVAL_REQUESTED          -> Icons.Default.CheckCircle
+    NotificationType.APPROVAL_APPROVED           -> Icons.Default.CheckCircle
+    NotificationType.APPROVAL_REJECTED           -> Icons.Default.Cancel
+    NotificationType.ALLOTMENT_REQUESTED         -> Icons.Default.Medication
+    NotificationType.ALLOTMENT_FULFILLED         -> Icons.Default.Medication
+    NotificationType.MEDICATION_REMINDER         -> Icons.Default.Medication
+    NotificationType.MEDICATION_MISSED_ALERT     -> Icons.Default.Cancel
+    NotificationType.MEDICATION_MISSED_ESCALATION -> Icons.Default.Cancel
 }

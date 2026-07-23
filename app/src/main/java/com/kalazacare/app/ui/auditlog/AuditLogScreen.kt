@@ -28,8 +28,7 @@ import com.kalazacare.app.ui.AuditLogViewModel
 import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.theme.KalazaRed
-import java.time.LocalDateTime
-import java.time.temporal.ChronoUnit
+import com.kalazacare.app.util.timeAgo
 
 @Composable
 fun AuditLogScreen(
@@ -141,14 +140,4 @@ private fun getIconForName(name: String): ImageVector {
         "archive"      -> Icons.Default.Archive
         else -> Icons.Default.Edit
     }
-}
-
-private fun LocalDateTime.timeAgo(): String {
-    val now = LocalDateTime.now()
-    val minutes = ChronoUnit.MINUTES.between(this, now)
-    if (minutes < 60) return "$minutes mins ago"
-    val hours = ChronoUnit.HOURS.between(this, now)
-    if (hours < 24) return "$hours hours ago"
-    val days = ChronoUnit.DAYS.between(this, now)
-    return "$days days ago"
 }

@@ -93,8 +93,10 @@ fun KalazaNavHost(
         )
     }
 
-    // Logout handler — clears session and navigates back to login
+    // Logout handler — clears local session, signs out of Supabase Auth
+    // server-side, and navigates back to login
     val onLogout: () -> Unit = {
+        app.authRepository.logout()
         SessionManager.logout()
         navController.navigate(Routes.LOGIN) {
             popUpTo(0) { inclusive = true }

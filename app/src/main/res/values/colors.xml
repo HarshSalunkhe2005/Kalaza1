@@ -1,12 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Kalaza Care Brand Colors -->
-    <color name="kalaza_red">#9B000A</color>
-    <color name="kalaza_light_red">#C80714</color>
+    <!-- Only used by themes.xml for the native status/navigation bar color —
+         everything else in the app's actual palette lives in ui/theme/Color.kt -->
     <color name="kalaza_dark_maroon">#4C0404</color>
     <color name="kalaza_white">#FFFFFF</color>
-    <color name="kalaza_surface">#F8F8F8</color>
-    <color name="kalaza_navy">#0C0367</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
 </resources>
