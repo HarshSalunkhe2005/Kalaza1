@@ -197,6 +197,27 @@ data class ApprovalRequest(
     val rejectionReason: String = "",
 )
 
+/**
+ * A permanent, append-only record of one allotment/administration photo
+ * event — separate from [MedicationEntry]'s own allotment/administered
+ * fields, which are a *live* view that resets daily for recurring doses
+ * (see MedicationRepository.withComputedStatus). Photo Audit reads from
+ * this log instead, so a dose resetting to PENDING the next day doesn't
+ * erase yesterday's evidence from the compliance record.
+ */
+data class MedicationEvidenceEvent(
+    val id: String = "",
+    val medicationId: String = "",
+    val patientId: String = "",
+    val medicineName: String = "",
+    val kind: String = "", // "ALLOTMENT" or "ADMINISTRATION"
+    val staffId: String = "",
+    val staffName: String = "",
+    val photoUrl: String = "",
+    val occurredAt: LocalDateTime = LocalDateTime.now(),
+    val expiresAt: LocalDateTime? = null,
+)
+
 data class AuditLogEntry(
     val id: String = "",
     val action: String = "",

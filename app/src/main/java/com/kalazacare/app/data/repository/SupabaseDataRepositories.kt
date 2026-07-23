@@ -1,5 +1,8 @@
 package com.kalazacare.app.data.repository
 
+import com.kalazacare.app.data.local.PatientDao
+import com.kalazacare.app.data.local.toDomain
+import com.kalazacare.app.data.local.toEntity
 import com.kalazacare.app.data.model.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -63,10 +66,24 @@ private fun Patient.toRow() = PatientRow(
     primaryDiagnosis = primaryDiagnosis,
 )
 
-class SupabasePatientRepository(private val client: SupabaseClient) : PatientRepository {
+class SupabasePatientRepository(
+    private val client: SupabaseClient,
+    private val patientDao: PatientDao,
+) : PatientRepository {
     private val table = "patients"
     override suspend fun getAllPatients(includeArchived: Boolean): List<Patient> {
-        val all = client.postgrest.from(table).select().decodeList<PatientRow>().map { it.toDomain() }
+        // Offline cache foundation: on a live fetch, refresh the local cache;
+        // if the fetch itself fails (no connectivity), fall back to whatever
+        // was cached last. Only the patient list is cached so far — every
+        // other read in the app still requires a live connection.
+        val all = try {
+            val fresh = client.postgrest.from(table).select().decodeList<PatientRow>().map { it.toDomain() }
+            patientDao.clear()
+            patientDao.upsertAll(fresh.map { it.toEntity() })
+            fresh
+        } catch (_: Exception) {
+            patientDao.getAll().map { it.toDomain() }
+        }
         return (if (includeArchived) all else all.filter { !it.isArchived }).sortedBy { it.name }
     }
     override suspend fun getPatientById(id: String): Patient? =
@@ -187,18 +204,40 @@ private fun MedicationEntry.toRow() = MedicationRow(
 /**
  * PENDING/OVERDUE is a live-computed view of the schedule, not a persisted fact —
  * recomputed on every read so editing a dose's time (e.g. moving it later)
- * un-overdues it instead of leaving it stuck OVERDUE forever. ADMINISTERED
- * entries are left untouched regardless of schedule. For a recurring dose,
- * [scheduledDate] is stale the moment a day passes, so "due today" is judged
- * against today's date instead — only a one-off dose is checked against its
- * own stored date.
+ * un-overdues it instead of leaving it stuck OVERDUE forever. For a recurring
+ * dose, [scheduledDate] is stale the moment a day passes, so "due today" is
+ * judged against today's date instead — only a one-off dose is checked
+ * against its own stored date.
+ *
+ * A *recurring* dose that was ALLOTTED/ADMINISTERED also resets back to a
+ * fresh PENDING/OVERDUE view once its allotted/administered day has passed —
+ * otherwise "given yesterday" would incorrectly suppress today's occurrence
+ * forever. This reset is display-time only (nothing is written back), and it
+ * doesn't lose history: the permanent compliance record lives in
+ * `medication_evidence_log` (see [MedicationEvidenceEvent]), not in these
+ * flat columns, so Photo Audit is unaffected by this reset.
  */
 private fun MedicationEntry.withComputedStatus(): MedicationEntry {
-    if (status != MedStatus.PENDING && status != MedStatus.OVERDUE) return this
-    val effectiveDate = if (isRecurring) LocalDate.now() else scheduledDate
-    val scheduledAt = LocalDateTime.of(effectiveDate, scheduleTime)
+    var e = this
+    if (e.isRecurring) {
+        if (e.status == MedStatus.ADMINISTERED && e.administeredAt?.toLocalDate() != LocalDate.now()) {
+            e = e.copy(
+                status = MedStatus.PENDING, administeredBy = "", administeredAt = null,
+                administeredPhotoUrl = "", administeredPhotoExpiresAt = null,
+            )
+        }
+        if (e.allotmentStatus == AllotmentStatus.ALLOTTED && e.allottedAt?.toLocalDate() != LocalDate.now()) {
+            e = e.copy(
+                allotmentStatus = AllotmentStatus.NOT_ALLOTTED, allottedById = "", allottedByName = "",
+                allottedAt = null, allotmentPhotoUrl = "", allotmentPhotoExpiresAt = null,
+            )
+        }
+    }
+    if (e.status != MedStatus.PENDING && e.status != MedStatus.OVERDUE) return e
+    val effectiveDate = if (e.isRecurring) LocalDate.now() else e.scheduledDate
+    val scheduledAt = LocalDateTime.of(effectiveDate, e.scheduleTime)
     val computed = if (scheduledAt.isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
-    return if (computed != status) copy(status = computed) else this
+    return if (computed != e.status) e.copy(status = computed) else e
 }
 
 /** A recurring dose is due every day regardless of its stored date; a one-off dose is due only on that date. */
@@ -230,6 +269,7 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
         client.postgrest.from(table).delete { filter { eq("id", id) } }
     }
     override suspend fun markAdministered(id: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime) {
+        val med = client.postgrest.from(table).select { filter { eq("id", id) } }.decodeSingleOrNull<MedicationRow>()
         client.postgrest.from(table).update(
             mapOf(
                 "status" to MedStatus.ADMINISTERED.name,
@@ -239,8 +279,18 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
                 "administered_photo_expires_at" to photoExpiresAt.toString(),
             )
         ) { filter { eq("id", id) } }
+        if (med != null) {
+            client.postgrest.from(EVIDENCE_LOG_TABLE).insert(
+                MedicationEvidenceRow(
+                    id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
+                    kind = "ADMINISTRATION", staffId = null, staffName = staffName,
+                    photoUrl = photoUrl, occurredAt = LocalDateTime.now().toString(), expiresAt = photoExpiresAt.toString(),
+                )
+            )
+        }
     }
     override suspend fun allotMedication(id: String, staffId: String, staffName: String, photoUrl: String, photoExpiresAt: LocalDateTime) {
+        val med = client.postgrest.from(table).select { filter { eq("id", id) } }.decodeSingleOrNull<MedicationRow>()
         client.postgrest.from(table).update(
             mapOf(
                 "allotment_status" to AllotmentStatus.ALLOTTED.name,
@@ -251,8 +301,41 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
                 "allotment_photo_expires_at" to photoExpiresAt.toString(),
             )
         ) { filter { eq("id", id) } }
+        if (med != null) {
+            client.postgrest.from(EVIDENCE_LOG_TABLE).insert(
+                MedicationEvidenceRow(
+                    id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
+                    kind = "ALLOTMENT", staffId = staffId, staffName = staffName,
+                    photoUrl = photoUrl, occurredAt = LocalDateTime.now().toString(), expiresAt = photoExpiresAt.toString(),
+                )
+            )
+        }
     }
+    override suspend fun getEvidenceLog(): List<MedicationEvidenceEvent> =
+        client.postgrest.from(EVIDENCE_LOG_TABLE).select().decodeList<MedicationEvidenceRow>()
+            .map { it.toDomain() }.sortedByDescending { it.occurredAt }
 }
+
+private const val EVIDENCE_LOG_TABLE = "medication_evidence_log"
+
+@Serializable
+private data class MedicationEvidenceRow(
+    val id: String,
+    @SerialName("medication_id") val medicationId: String,
+    @SerialName("patient_id") val patientId: String,
+    @SerialName("medicine_name") val medicineName: String = "",
+    val kind: String = "",
+    @SerialName("staff_id") val staffId: String? = null,
+    @SerialName("staff_name") val staffName: String = "",
+    @SerialName("photo_url") val photoUrl: String = "",
+    @SerialName("occurred_at") val occurredAt: String = LocalDateTime.now().toString(),
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+private fun MedicationEvidenceRow.toDomain() = MedicationEvidenceEvent(
+    id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName,
+    kind = kind, staffId = staffId ?: "", staffName = staffName, photoUrl = photoUrl,
+    occurredAt = parseTimestamp(occurredAt), expiresAt = parseTimestampOrNull(expiresAt),
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utility Records & Items

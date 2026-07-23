@@ -54,6 +54,8 @@ interface MedicationRepository {
     suspend fun deleteMedication(id: String)
     suspend fun markAdministered(id: String, staffName: String, photoUrl: String, photoExpiresAt: java.time.LocalDateTime)
     suspend fun allotMedication(id: String, staffId: String, staffName: String, photoUrl: String, photoExpiresAt: java.time.LocalDateTime)
+    /** The permanent compliance record behind Photo Audit — see [MedicationEvidenceEvent]. */
+    suspend fun getEvidenceLog(): List<MedicationEvidenceEvent>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

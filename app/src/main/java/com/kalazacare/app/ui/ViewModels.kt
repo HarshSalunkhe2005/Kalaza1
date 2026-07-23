@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.messaging.FirebaseMessaging
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
+import com.kalazacare.app.util.PhotoUploader
 import com.kalazacare.app.util.SessionManager
+import com.kalazacare.app.util.subscribeToTableChanges
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,7 +91,12 @@ class DashboardViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        subscribeToTableChanges(viewModelScope, "patients") { load() }
+        subscribeToTableChanges(viewModelScope, "medications") { load() }
+        subscribeToTableChanges(viewModelScope, "approval_requests") { load() }
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -409,7 +416,11 @@ class MedicineViewModel(
     private val _pendingRequests = MutableStateFlow<List<AllotmentRequest>>(emptyList())
     val pendingRequests: StateFlow<List<AllotmentRequest>> = _pendingRequests.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        subscribeToTableChanges(viewModelScope, "medications") { load() }
+        subscribeToTableChanges(viewModelScope, "allotment_requests") { load() }
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -480,7 +491,10 @@ class NotificationViewModel(private val repo: NotificationRepository) : ViewMode
     val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
-    init { load() }
+    init {
+        load()
+        subscribeToTableChanges(viewModelScope, "notifications") { load() }
+    }
     fun load() {
         val staff = SessionManager.getCurrentStaff() ?: return
         viewModelScope.launch {
@@ -794,7 +808,10 @@ class ApprovalViewModel(
 ) : ViewModel() {
     private val _requests = MutableStateFlow<List<ApprovalRequest>>(emptyList())
     val requests: StateFlow<List<ApprovalRequest>> = _requests.asStateFlow()
-    init { load() }
+    init {
+        load()
+        subscribeToTableChanges(viewModelScope, "approval_requests") { load() }
+    }
     fun load() { viewModelScope.launch { _requests.value = repo.getAllRequests() } }
 
     /**
@@ -1166,25 +1183,21 @@ class PhotoAuditViewModel(
     fun load() {
         viewModelScope.launch {
             val patients = patientRepo.getAllPatients(includeArchived = true).associateBy { it.id }
-            val result = mutableListOf<PhotoAuditEntry>()
-            medRepo.getAllMedications().forEach { entry ->
-                val patientName = patients[entry.patientId]?.name ?: "Unknown"
-                if (entry.allotmentPhotoUrl.isNotBlank()) {
-                    result += PhotoAuditEntry(
-                        entry.id, patientName, entry.medicineName, "Allotment",
-                        entry.allottedByName, entry.allotmentPhotoUrl,
-                        entry.allottedAt ?: LocalDateTime.now(), entry.allotmentPhotoExpiresAt ?: LocalDateTime.now()
-                    )
-                }
-                if (entry.administeredPhotoUrl.isNotBlank()) {
-                    result += PhotoAuditEntry(
-                        entry.id, patientName, entry.medicineName, "Administration",
-                        entry.administeredBy, entry.administeredPhotoUrl,
-                        entry.administeredAt ?: LocalDateTime.now(), entry.administeredPhotoExpiresAt ?: LocalDateTime.now()
-                    )
-                }
-            }
-            _entries.value = result.sortedByDescending { it.capturedAt }
+            // Reads the permanent evidence log, not the medications table's own
+            // live allotment/administered fields — those reset daily for
+            // recurring doses (see MedicationRepository.withComputedStatus),
+            // which would otherwise erase yesterday's evidence from this
+            // compliance record the instant the calendar rolls over.
+            _entries.value = medRepo.getEvidenceLog().map { ev ->
+                PhotoAuditEntry(
+                    ev.medicationId,
+                    patients[ev.patientId]?.name ?: "Unknown",
+                    ev.medicineName,
+                    if (ev.kind == "ALLOTMENT") "Allotment" else "Administration",
+                    ev.staffName, ev.photoUrl,
+                    ev.occurredAt, ev.expiresAt ?: ev.occurredAt.plusHours(PhotoUploader.EVIDENCE_RETENTION_HOURS)
+                )
+            }.sortedByDescending { it.capturedAt }
         }
     }
 }
