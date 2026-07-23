@@ -1,8 +1,5 @@
 package com.kalazacare.app.data.repository
 
-import com.kalazacare.app.data.local.PatientDao
-import com.kalazacare.app.data.local.toDomain
-import com.kalazacare.app.data.local.toEntity
 import com.kalazacare.app.data.model.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -66,24 +63,10 @@ private fun Patient.toRow() = PatientRow(
     primaryDiagnosis = primaryDiagnosis,
 )
 
-class SupabasePatientRepository(
-    private val client: SupabaseClient,
-    private val patientDao: PatientDao,
-) : PatientRepository {
+class SupabasePatientRepository(private val client: SupabaseClient) : PatientRepository {
     private val table = "patients"
     override suspend fun getAllPatients(includeArchived: Boolean): List<Patient> {
-        // Offline cache foundation: on a live fetch, refresh the local cache;
-        // if the fetch itself fails (no connectivity), fall back to whatever
-        // was cached last. Only the patient list is cached so far — every
-        // other read in the app still requires a live connection.
-        val all = try {
-            val fresh = client.postgrest.from(table).select().decodeList<PatientRow>().map { it.toDomain() }
-            patientDao.clear()
-            patientDao.upsertAll(fresh.map { it.toEntity() })
-            fresh
-        } catch (_: Exception) {
-            patientDao.getAll().map { it.toDomain() }
-        }
+        val all = client.postgrest.from(table).select().decodeList<PatientRow>().map { it.toDomain() }
         return (if (includeArchived) all else all.filter { !it.isArchived }).sortedBy { it.name }
     }
     override suspend fun getPatientById(id: String): Patient? =

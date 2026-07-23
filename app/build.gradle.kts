@@ -2,11 +2,9 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    // AGP 9.0+ has Kotlin support built in — the separate kotlin.android
-    // plugin is no longer just redundant, it's rejected outright.
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
 }
 
@@ -103,11 +101,6 @@ dependencies {
     implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.android)
     implementation(libs.kotlinx.serialization.json)
-
-    // Room — offline cache foundation (patients only, for now)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
 
     // Debug
     debugImplementation(libs.androidx.ui.tooling)
