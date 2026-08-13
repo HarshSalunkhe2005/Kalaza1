@@ -22,6 +22,7 @@ import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.MedStatusBadge
 import com.kalazacare.app.ui.components.TimeOfDayField
 import com.kalazacare.app.ui.components.label
+import com.kalazacare.app.ui.components.matches
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.OnSurface
 import com.kalazacare.app.ui.theme.OnSurfaceVariant
@@ -182,6 +183,7 @@ private fun EditMedicationDialog(
     var scheduleTime by remember { mutableStateOf(entry.scheduleTime) }
     var tag      by remember { mutableStateOf(entry.tag) }
     var notes    by remember { mutableStateOf(entry.notes) }
+    val tagTimeMismatch = !tag.matches(scheduleTime)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -200,6 +202,13 @@ private fun EditMedicationDialog(
                 TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
                 Text("Tag:", style = MaterialTheme.typography.bodyMedium)
                 DoseTagPicker(selected = tag, onSelect = { tag = it })
+                if (tagTimeMismatch) {
+                    Text(
+                        "${DateUtils.formatTime(scheduleTime)} doesn't fall in ${tag.label()}'s usual window — pick a time that matches, or change the tag.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 OutlinedTextField(value = notes, onValueChange = { notes = it },
                     label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
             }
@@ -217,7 +226,7 @@ private fun EditMedicationDialog(
                     ))
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() && !tagTimeMismatch
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
