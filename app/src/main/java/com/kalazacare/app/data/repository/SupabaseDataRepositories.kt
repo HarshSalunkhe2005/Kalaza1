@@ -147,6 +147,7 @@ private data class MedicationRow(
     @SerialName("medicine_name") val medicineName: String = "",
     val dose: String = "", val quantity: String = "",
     @SerialName("schedule_time") val scheduleTime: String = LocalTime.now().toString(),
+    val tag: String = "MORNING",
     @SerialName("scheduled_date") val scheduledDate: String = LocalDate.now().toString(),
     @SerialName("is_recurring") val isRecurring: Boolean = true,
     // Comma-separated ISO day-of-week numbers (1=Mon..7=Sun), e.g. "1,3,5".
@@ -166,7 +167,9 @@ private data class MedicationRow(
 private fun MedicationRow.toDomain(): MedicationEntry {
     val entry = MedicationEntry(
         id = id, patientId = patientId, medicineName = medicineName, dose = dose, quantity = quantity,
-        scheduleTime = parseTime(scheduleTime), scheduledDate = parseDate(scheduledDate), isRecurring = isRecurring,
+        scheduleTime = parseTime(scheduleTime),
+        tag = runCatching { DoseTag.valueOf(tag) }.getOrDefault(DoseTag.MORNING),
+        scheduledDate = parseDate(scheduledDate), isRecurring = isRecurring,
         recurringDays = recurringDays.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet(),
         status = runCatching { MedStatus.valueOf(status) }.getOrDefault(MedStatus.PENDING),
         administeredBy = administeredBy, administeredAt = parseTimestampOrNull(administeredAt), notes = notes,
@@ -179,7 +182,8 @@ private fun MedicationRow.toDomain(): MedicationEntry {
 }
 private fun MedicationEntry.toRow() = MedicationRow(
     id = id, patientId = patientId, medicineName = medicineName, dose = dose, quantity = quantity,
-    scheduleTime = scheduleTime.toString(), scheduledDate = scheduledDate.toString(), isRecurring = isRecurring,
+    scheduleTime = scheduleTime.toString(), tag = tag.name,
+    scheduledDate = scheduledDate.toString(), isRecurring = isRecurring,
     recurringDays = recurringDays.sorted().joinToString(","), status = status.name,
     administeredBy = administeredBy, administeredAt = administeredAt?.toString(), notes = notes,
     allotmentStatus = allotmentStatus.name, allottedById = allottedById.ifBlank { null }, allottedByName = allottedByName,
@@ -257,6 +261,8 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
     override suspend fun getMedicationsForPatient(patientId: String): List<MedicationEntry> =
         client.postgrest.from(table).select { filter { eq("patient_id", patientId) } }
             .decodeList<MedicationRow>().map { it.toDomain() }.sortedBy { it.scheduleTime }
+    override suspend fun getMedicationsForPatientAndTag(patientId: String, tag: DoseTag, date: LocalDate): List<MedicationEntry> =
+        getMedicationsForPatient(patientId, date).filter { it.tag == tag }
     override suspend fun getMedicationsForDate(date: LocalDate): List<MedicationEntry> =
         client.postgrest.from(table).select {
             filter {

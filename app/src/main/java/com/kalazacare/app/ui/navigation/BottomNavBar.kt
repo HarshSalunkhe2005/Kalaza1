@@ -28,6 +28,7 @@ fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
     val staffItems = listOf(
         BottomNavItem(Routes.TODO_LIST, "Tasks", Icons.Filled.Assignment, Icons.Outlined.Assignment),
         BottomNavItem(Routes.DASHBOARD, "Patients", Icons.Filled.People, Icons.Outlined.People),
+        BottomNavItem(Routes.SCAN, "Scan", Icons.Filled.QrCodeScanner, Icons.Outlined.QrCodeScanner),
     )
     val supervisorItems = staffItems + listOf(
         BottomNavItem(Routes.MEDICINE, "Medicine", Icons.Filled.Medication, Icons.Outlined.Medication),
