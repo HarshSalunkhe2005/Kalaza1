@@ -22,7 +22,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - **Login is by Name, not Email.** The login screen asks for the staff member's Name; `AuthRepository.login` matches `Staff.name` case-insensitively, looks up a synthetic per-staff email, and authenticates for real against Supabase Auth (hashed password, server-side). `Staff.email` still exists as a separate contact-info field (shown in Config), it's just never the login credential. Super Admin assigns each staff member's password at creation time (`StaffRepository.addStaff`).
 
 ### 2. Navigation & UI Shell
-- **Bottom Navigation Bar:** Context-aware based on the logged-in user. (Super Admin sees: Patients, Approvals, Audit Log, Config, Summary. Supervisor sees: Patients, Medicine. Regular Staff sees: Patients.)
+- **Bottom Navigation Bar:** Context-aware based on the logged-in user. Super Admin sees: Overview, Patients, Approvals, Audit Log, Config, Summary. Supervisor sees: Tasks, Patients, Scan, Medicine. Regular Staff sees: Tasks, Patients, Scan.
 - **Top App Bar:** Customized to display the brand's red stripe (`KalazaRed`), the app logo, dynamic screen titles, and a clickable Notification Bell. On the Patients/Dashboard tab, the subtitle line shows the logged-in staff member's own name instead of a static "Dashboard" label.
 
 ### 3. Patient Management
@@ -30,7 +30,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - **Patient Profile:**
   - **Details Tab:** View/Edit patient demographics and medical history, including the **Admission Date** (now an editable date picker, previously fixed at creation time). Staff edits go to the Approval Queue. Super Admin edits save immediately and log to Audit.
   - **Vitals Tab:** Record and view daily vitals (BP, Heart Rate, Temp, SpO2). Every role can edit an existing row via a pencil icon on that row: edits within 24h of the original entry apply directly (and are logged to Audit); edits made more than 24h after the entry go through the Approval Queue instead. Super Admin always edits directly.
-  - **MAR (Medication Administration Record) Tab:** Track scheduled medications. Add/edit/delete of MAR entries is Super Admin-only. Every dose is either **recurring** (`isRecurring = true`, the default — due every day regardless of its stored date) or a **one-time dose** on a specific date (toggle + date picker in Add Medication). Overdue status is computed live on every read: for a one-time dose against its own stored date, for a recurring dose against *today's* date — and for a recurring dose, ALLOTTED/ADMINISTERED also resets to a fresh PENDING/OVERDUE view once its day has passed, so "given yesterday" doesn't suppress today's occurrence. Marking a dose "given" requires scanning the medicine's QR code as evidence, and shows whether the dose has been allotted yet; any staff can flag a "Request Allotment" if supervisor forgot.
+  - **Med Tab** (renamed from "MAR" — see section 20): Track scheduled medications. Add/edit/delete of Med entries is Super Admin-only. Every dose is either **recurring** (`isRecurring = true`, the default — due every day regardless of its stored date, optionally narrowed to specific weekdays via `recurringDays`) or a **one-time dose** on a specific date (toggle + date picker in Add Medication). Every dose also carries a mandatory `DoseTag` (Morning/Afternoon/Evening — see section 20). Overdue status is computed live on every read: for a one-time dose against its own stored date, for a recurring dose against *today's* date — and for a recurring dose, ALLOTTED/ADMINISTERED also resets to a fresh PENDING/OVERDUE view once its day has passed, so "given yesterday" doesn't suppress today's occurrence. Marking a dose "given" here requires scanning the medicine's QR code as evidence, and shows whether the dose has been allotted yet; any staff can flag a "Request Allotment" if supervisor forgot. (The Scan tab — section 20 — is the other, batch-oriented way to mark doses given.)
   - **Utility Tab:** Log usage of medical utilities. Columns/fields are generated dynamically from whatever's configured in Config → Utility Items — adding a new item type there shows up here immediately, no code change needed. Row-level edit uses the same 24h-grace-then-approval policy as Vitals.
   - **Doctor Visits Tab:** Log specific instructions and notes left by visiting doctors, now including a visit **time** alongside the date. Visits can also be **deleted** — Super Admin deletes directly (logged to Audit); every other role's delete request goes through the Approval Queue first.
   - **Care Notes Tab:** Add general nursing/care notes for the patient, and edit an existing note via its pencil icon — same 24h-grace-then-approval policy as Vitals/Utility.
@@ -122,6 +122,115 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 - `MedicationEntry`'s `allotmentPhotoUrl`/`allotmentPhotoExpiresAt` and `administeredPhotoUrl`/`administeredPhotoExpiresAt` became `allotmentScannedCode`/`administeredScannedCode` (no expiry — it's just text, not a Storage object with a retention window). `MedicationEvidenceEvent` similarly replaced `photoUrl`/`expiresAt` with a single `scannedCode`. `markAdministered`/`allotMedication` now take `scannedCode: String` instead of a photo URL + expiry pair. The per-patient xlsx report's per-day administration lookup (section 13) is unaffected — it only ever read `occurredAt`/`patientId`/`medicationId` off `MedicationEvidenceEvent`, never the photo fields.
 - The restricted, photo-audit-only `UserRole.ADMIN` (added in section 11) was removed entirely — `ui/photoaudit/PhotoAuditScreen.kt`, `PhotoAuditViewModel`/`PhotoAuditEntry`, `Routes.PHOTO_AUDIT`, and `SessionManager.isPhotoAdmin()` are all gone. `StaffEditor`'s role picker is unaffected (it already derived its options generically from `UserRole.entries`). Only three roles remain: `SUPER_ADMIN`, `SUPERVISOR`, `STAFF`.
 - **Backend restructuring is done too**: `medications`/`medication_evidence_log` columns were migrated to the `*_scanned_code` names, the `cleanup-photos` Edge Function's `pg_cron` schedule was unscheduled and the function itself deleted, Arti's `ADMIN` staff row was removed, and the now-unused evidence Storage bucket was deleted. Postgres has no `DROP VALUE` for enum types, so the now-unused `'ADMIN'` label is left in the DB's `user_role` enum type harmlessly rather than migrated away (would need a full type-swap for zero practical benefit).
+
+### 20. Batch-QR Scan Tab + Mandatory Dose Tags
+- Every `MedicationEntry` now carries a mandatory `DoseTag` (`MORNING`/`AFTERNOON`/`EVENING`, `data/model/Entities.kt`) alongside its exact `scheduleTime` — a coarse bucket independent of the precise time, picked via `DoseTagPicker` (required, no silent default) in both Add and Edit Medication. `DoseTag.matches(time)` (Morning 12am–12pm, Afternoon 12pm–5pm, Evening 5pm–12am) is checked live in both dialogs: a time/tag combo that doesn't agree (e.g. a 9pm dose tagged Morning) shows an inline red warning and blocks Save until resolved.
+- **New "Scan" tab** (`ui/scan/ScanScreen.kt`, bottom nav for Staff + Supervisor, not Super Admin): staff scan a patient's printed QR code — plain text payload `"<patient name>|<TAG>"`, e.g. `Vasant Rao Joshi|MORNING` — or use an always-available manual name+tag fallback if the camera won't cooperate. A successful match (name matched loosely: trimmed, case-insensitive, internal whitespace collapsed; tag matched exactly) fetches that patient's meds tagged for that round via `MedicationRepository.getMedicationsForPatientAndTag`. An unmatched/garbled QR hard-blocks with an error banner — the list never shows for a wrong scan.
+- The matched list is **checkbox multi-select**, not one QR-gated tap per dose like the Med tab's flow: doses already given show their status badge (greyed); doses whose `scheduleTime` hasn't arrived yet (compared live against `LocalTime.now()`) are also greyed out and their checkbox disabled, un-greying automatically once the clock catches up without needing a re-scan. Selecting one or more due doses surfaces a "Confirm N Given" bar, which opens a review popup listing exactly what's about to be marked (name + dose) — its OK button is disabled for 6 seconds (`CONFIRM_HOLD_SECONDS`) so it can't be reflex-tapped past; Cancel stays live throughout. Confirming calls `ScanViewModel.markGivenBatch()`, which marks every selected dose given and refreshes the list once.
+- "MAR" was renamed to "**Med**" as a patient-profile tab label (cosmetic only, `PatientProfileScreen.kt`'s tab list) — no route/behavior change.
+
+### 21. Schema Verification & Two Latent Bugs Found + Fixed
+A full introspection query (see prompt below) was run against the live Supabase project to replace assumption with a verified ground truth. It surfaced two real, live bugs, both fixed:
+- **`supabase-kt`'s Postgrest client hardcodes `Json { encodeDefaults = false }`** with no per-client override (confirmed from the library's own source, `Supabase/src/commonMain/kotlin/io/github/jan/supabase/Utils.kt`) — any field left at its Kotlin default value is silently **dropped from the request entirely**, not sent as null. This bit `MedicationRow.tag` (default `"MORNING"`, and the DB column had no server-side default): creating/leaving a medication on the default tag omitted `tag` from the insert, hitting the column's `NOT NULL` constraint (`23502` crash) — and editing a tag *back* to Morning would have silently no-op'd on update instead of persisting. Fixed with `@EncodeDefault(EncodeDefault.Mode.ALWAYS)` on `MedicationRow.tag`, which forces it into every request regardless of the encoder's own skip-defaults behavior; `MedicationRow.recurringDays` (default `""`) got the same annotation pre-emptively for the identical reason. **Any future field whose Kotlin default could legitimately be re-selected by a user (an enum-like column, a boolean, an empty-collection default) needs this same annotation** — don't assume a plain `@SerialName` field will always reach the request.
+- **`medications.recurring_days` didn't exist as a column at all** — the day-of-week recurring feature (section 13/14 of prior history) shipped Kotlin code (`MedicationRow.recurringDays`, `MedicationEntry.recurringDays: Set<Int>`) against a column that was never migrated in. It was masked by the exact bug above (an empty/default selection never got sent, so nothing ever tried to write to the missing column) — the first medication saved with specific weekdays picked would have crashed with `column "recurring_days" does not exist`. Fixed: `alter table medications add column if not exists recurring_days text not null default ''`.
+- Also found and fixed in passing: a stale, still-`active` `pg_cron` job (`cleanup-evidence-photos`, hourly) calling `functions/v1/cleanup-photos` — that Edge Function was deleted as part of section 19's photo→QR-scan migration, and the migration's own cron-unschedule step was apparently missed despite being marked done. Unscheduled via `select cron.unschedule('cleanup-evidence-photos')`.
+- **Lesson for future sessions:** don't assume a Kotlin data class's shape matches the live DB, or that a documented migration actually fully ran — re-verify against the real schema (introspection query below) whenever something in this space looks suspicious, rather than trusting prior session notes at face value.
+
+---
+
+## Verified Database Schema (Supabase, `public` schema)
+
+Ground truth as of the section 21 audit — re-run the query below and re-verify before trusting this if it's been a while, rather than assuming it's still accurate.
+
+**Introspection query** (single query, returns one pretty-printed JSON column covering tables/columns/types/nullability/defaults, primary keys, foreign keys, check constraints, RLS enabled-state + policies, indexes, and `pg_cron` jobs):
+```sql
+select jsonb_pretty(
+  jsonb_build_object(
+    'tables', (
+      select jsonb_agg(jsonb_build_object(
+        'table', c.table_name,
+        'columns', (
+          select jsonb_agg(jsonb_build_object(
+            'column', col.column_name, 'type', col.data_type,
+            'nullable', col.is_nullable, 'default', col.column_default
+          ) order by col.ordinal_position)
+          from information_schema.columns col
+          where col.table_schema = 'public' and col.table_name = c.table_name
+        )
+      ) order by c.table_name)
+      from (select distinct table_name from information_schema.tables
+            where table_schema = 'public' and table_type = 'BASE TABLE') c
+    ),
+    'primary_keys', (
+      select jsonb_agg(jsonb_build_object('table', tc.table_name, 'column', kcu.column_name))
+      from information_schema.table_constraints tc
+      join information_schema.key_column_usage kcu
+        on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
+      where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = 'public'
+    ),
+    'foreign_keys', (
+      select jsonb_agg(jsonb_build_object(
+        'table', tc.table_name, 'column', kcu.column_name,
+        'references_table', ccu.table_name, 'references_column', ccu.column_name
+      ))
+      from information_schema.table_constraints tc
+      join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name
+      join information_schema.constraint_column_usage ccu on tc.constraint_name = ccu.constraint_name
+      where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = 'public'
+    ),
+    'check_constraints', (
+      select jsonb_agg(jsonb_build_object(
+        'table', conrelid::regclass::text, 'name', conname, 'definition', pg_get_constraintdef(oid)
+      ))
+      from pg_constraint where contype = 'c' and connamespace = 'public'::regnamespace
+    ),
+    'rls_enabled', (
+      select jsonb_agg(jsonb_build_object('table', relname, 'rls_enabled', relrowsecurity))
+      from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'
+    ),
+    'rls_policies', (
+      select jsonb_agg(jsonb_build_object(
+        'table', tablename, 'policy', policyname, 'cmd', cmd, 'roles', roles,
+        'using', qual, 'with_check', with_check
+      ))
+      from pg_policies where schemaname = 'public'
+    ),
+    'indexes', (
+      select jsonb_agg(jsonb_build_object('table', tablename, 'index', indexname, 'def', indexdef))
+      from pg_indexes where schemaname = 'public'
+    ),
+    'cron_jobs', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'name', jobname, 'schedule', schedule, 'command', command, 'active', active
+      )), '[]'::jsonb)
+      from cron.job
+    )
+  )
+) as full_schema_report;
+```
+(If `cron.job` errors because `pg_cron` isn't enabled on a given project, drop the `cron_jobs` key and rerun.)
+
+### Tables (13), by name — columns are `column: type` — `NN` = NOT NULL, `= x` = DB-level default. `id` on every table is `uuid`, PK, default `gen_random_uuid()` unless noted.
+
+- **`patients`**: `name: text NN =''`, `age: int NN =0`, `gender: gender_type(enum) NN ='MALE'`, `room_no: text NN =''`, `medical_history/current_issues/allergies/emergency_contact/emergency_phone/primary_diagnosis: text NN =''`, `admission_date: date NN =CURRENT_DATE`, `is_archived: bool NN =false`.
+- **`staff`**: `id: uuid` (**no default** — must equal the Supabase Auth user id, assigned by the app at signup, not DB-generated), `name: text NN`, `name_lower: text` (nullable, unique — app never writes this directly; a DB trigger/generated column presumably maintains it for case-insensitive login lookups), `email: text NN =''`, `role: user_role(enum) NN ='STAFF'`, `phone: text NN =''`, `is_active: bool NN =true`, `joined_date: date NN =CURRENT_DATE`, `auth_email: text NN` (no default), `fcm_token: text NN =''`.
+- **`medications`**: `patient_id: uuid NN FK→patients`, `medicine_name/dose/quantity: text NN =''`, `schedule_time: time NN =CURRENT_TIME`, `scheduled_date: date NN =CURRENT_DATE`, `status: med_status(enum) NN ='PENDING'`, `administered_by: text NN =''`, `administered_at: timestamptz` (nullable), `notes: text NN =''`, `allotment_status: allotment_status(enum) NN ='NOT_ALLOTTED'`, `allotted_by_id: uuid FK→staff` (nullable), `allotted_by_name: text NN =''`, `allotted_at: timestamptz` (nullable), `allotment_scanned_code/administered_scanned_code: text NN =''`, `is_recurring: bool NN =true`, `reminder_sent_at/admin_alert_sent_at/superadmin_alert_sent_at: timestamptz` (nullable, watchdog-only — no Kotlin field references these), `tag: text NN ='MORNING'` (CHECK constrained to MORNING/AFTERNOON/EVENING — see section 20/21), `recurring_days: text NN =''` (see section 21 — added late, was missing for a while).
+- **`vitals`**: `patient_id: uuid NN FK→patients`, `date: date NN =CURRENT_DATE`, `time: time NN =CURRENT_TIME`, `pulse/bp/spo2/temperature/sugar_fasting/sugar_pp/signed_by: text NN =''`, `created_at: timestamptz NN =now()`.
+- **`utility_records`**: `patient_id: uuid NN FK→patients`, `date: date NN =CURRENT_DATE`, `time: time NN =CURRENT_TIME`, `quantities: jsonb NN ='{}'`, `issued_to_caregiver/issued_by_supervisor/checked_by: text NN =''`, `created_at: timestamptz NN =now()`.
+- **`utility_items`**: `name: text NN =''`, `unit: text NN ='pcs'`, `display_order: int NN =0`, `is_active: bool NN =true`.
+- **`doctor_visits`**: `patient_id: uuid NN FK→patients`, `doctor_name/specialty/notes/prescription_changes: text NN =''`, `date: date NN =CURRENT_DATE`, `time: time NN =CURRENT_TIME`, `next_visit_date: date` (nullable), `is_confirmed/is_archived: bool NN =false`.
+- **`care_notes`**: `patient_id: uuid NN FK→patients`, `staff_id: uuid FK→staff` (nullable), `staff_name: text NN =''`, `timestamp: timestamptz NN =now()`, `note: text NN =''`.
+- **`approval_requests`**: `entity_type: approval_entity_type(enum) NN` (no default), `entity_id: text NN =''`, `action: approval_action(enum) NN ='EDIT'`, `patient_id: uuid FK→patients` (nullable), `patient_name/requested_by_name/field_changed/old_value/new_value/reviewed_by_name/rejection_reason: text NN =''`, `requested_by_id/reviewed_by_id: uuid FK→staff` (nullable), `status: approval_status(enum) NN ='PENDING'`, `timestamp: timestamptz NN =now()`, `reviewed_at: timestamptz` (nullable).
+- **`allotment_requests`**: `medication_entry_id: uuid NN FK→medications`, `patient_id: uuid NN FK→patients`, `patient_name/medicine_name/dose/requested_by_name/fulfilled_by_name: text NN =''`, `scheduled_time: time NN =CURRENT_TIME`, `requested_by_id/fulfilled_by_id: uuid FK→staff` (nullable), `status: allotment_request_status(enum) NN ='PENDING'`, `timestamp: timestamptz NN =now()`, `fulfilled_at: timestamptz` (nullable).
+- **`audit_log`**: `action/target_patient_id/target_patient_name/details: text NN =''`, `performed_by_id: uuid FK→staff` (nullable), `performed_by_name: text NN =''`, `timestamp: timestamptz NN =now()`, `icon_name: text NN ='edit'`.
+- **`notifications`**: `recipient_staff_id: uuid FK→staff` (nullable), `recipient_role: user_role(enum)` (nullable), `type: notification_type(enum) NN` (no default), `title/message/target_route: text NN =''`, `timestamp: timestamptz NN =now()`, `is_read: bool NN =false`.
+- **`medication_evidence_log`**: `medication_id: uuid NN FK→medications`, `patient_id: uuid NN FK→patients`, `medicine_name: text NN =''`, `kind: text NN` (CHECK: `ALLOTMENT`/`ADMINISTRATION`), `staff_id: uuid FK→staff` (nullable), `staff_name/scanned_code: text NN =''`, `occurred_at: timestamptz NN =now()`.
+
+All `USER-DEFINED` columns above are real Postgres enum types (`gender_type`, `user_role`, `med_status`, `allotment_status`, `approval_status`, `approval_action`, `approval_entity_type`, `allotment_request_status`, `notification_type`) — Kotlin sends/receives them as plain strings via `.name`/`.valueOf()`, which PostgREST coerces against the enum label, so a mismatched string (typo, or a Kotlin enum entry with no matching Postgres label) fails loudly rather than silently — good, but means adding a new Kotlin enum entry always needs a matching `ALTER TYPE ... ADD VALUE` migration too.
+
+**RLS**: enabled on all 13 tables. Broad pattern: `is_active_staff()` gates most SELECT/INSERT, `is_super_admin()` gates DELETE everywhere it's allowed at all and most sensitive UPDATEs (`patients`, `approval_requests`), `is_supervisor_or_above()` gates allotment-request fulfillment. `medications_insert`/`medications_delete` are Super-Admin-only (matches the client-side `SessionManager.isAdmin()` gate on Add/Edit/Delete Medication); `medications_update` allows `is_super_admin() OR is_active_staff()` (covers regular staff/supervisor marking doses given or allotted). `notifications_insert` is checked per notification `type` (see section 17).
+
+**`pg_cron` jobs**: `medication-watchdog` (every minute, active) — the only one that should exist post section-21 cleanup; `cleanup-evidence-photos` was found still active and was removed (section 21).
 
 ---
 
