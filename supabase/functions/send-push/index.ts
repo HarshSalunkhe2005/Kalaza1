@@ -129,6 +129,12 @@ Deno.serve(async (req) => {
             message: record.message ?? "",
             targetRoute: record.target_route ?? "",
           },
+          // Data-only messages default to NORMAL priority, which Doze/App
+          // Standby can batch-delay by minutes to hours (sometimes drop
+          // entirely) once the app is killed — exactly the case this needs
+          // to work in. HIGH tells FCM/the device to wake the app and
+          // deliver immediately regardless of power-saving state.
+          android: { priority: "high" },
         },
       }),
     });
