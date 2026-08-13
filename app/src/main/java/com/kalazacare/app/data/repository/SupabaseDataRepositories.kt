@@ -3,6 +3,8 @@ package com.kalazacare.app.data.repository
 import com.kalazacare.app.data.model.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -140,6 +142,7 @@ class SupabaseVitalsRepository(private val client: SupabaseClient) : VitalsRepos
 // Medication (MAR)
 // ─────────────────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 private data class MedicationRow(
     val id: String,
@@ -147,6 +150,12 @@ private data class MedicationRow(
     @SerialName("medicine_name") val medicineName: String = "",
     val dose: String = "", val quantity: String = "",
     @SerialName("schedule_time") val scheduleTime: String = LocalTime.now().toString(),
+    // supabase-kt's Json encoder has encodeDefaults=false baked in with no
+    // override — a value equal to its Kotlin default (e.g. a fresh "MORNING"
+    // tag) is silently dropped from the request instead of sent, which for
+    // this NOT NULL column meant a 23502 on insert and a no-op on update.
+    // @EncodeDefault(ALWAYS) forces it into every request regardless.
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val tag: String = "MORNING",
     @SerialName("scheduled_date") val scheduledDate: String = LocalDate.now().toString(),
     @SerialName("is_recurring") val isRecurring: Boolean = true,
