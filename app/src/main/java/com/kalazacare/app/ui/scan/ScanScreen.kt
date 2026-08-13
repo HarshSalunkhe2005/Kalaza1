@@ -96,8 +96,6 @@ fun ScanScreen(
 
     if (showQrDialog) {
         QrScanDialog(
-            title = "Scan Patient QR",
-            message = "Scan the patient's printed QR for this time of day (Morning / Afternoon / Evening).",
             onConfirm = { scannedCode ->
                 viewModel.onQrDecoded(scannedCode)
                 showQrDialog = false

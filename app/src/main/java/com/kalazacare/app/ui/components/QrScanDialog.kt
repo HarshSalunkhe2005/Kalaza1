@@ -57,10 +57,12 @@ import java.util.concurrent.Executors
 @OptIn(ExperimentalGetImage::class)
 @Composable
 fun QrScanDialog(
-    title: String,
-    message: String,
     onConfirm: (scannedCode: String) -> Unit,
     onDismiss: () -> Unit,
+    // Optional — omit for a bare dialog (camera / scanned-code result only, no
+    // heading copy above it), or pass both to keep the old explanatory header.
+    title: String? = null,
+    message: String? = null,
 ) {
     val context = LocalContext.current
 
@@ -80,11 +82,13 @@ fun QrScanDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+        title = title?.let { { Text(it, style = MaterialTheme.typography.titleLarge) } },
         text = {
             Column {
-                Text(message, style = MaterialTheme.typography.bodyMedium)
-                Spacer(modifier = Modifier.height(16.dp))
+                if (!message.isNullOrBlank()) {
+                    Text(message, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
                 when {
                     scannedCode != null -> {
                         Column(modifier = Modifier.fillMaxWidth()) {
