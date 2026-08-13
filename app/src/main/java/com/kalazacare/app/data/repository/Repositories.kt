@@ -48,6 +48,8 @@ interface VitalsRepository {
 interface MedicationRepository {
     suspend fun getMedicationsForPatient(patientId: String, date: LocalDate): List<MedicationEntry>
     suspend fun getMedicationsForPatient(patientId: String): List<MedicationEntry>
+    /** Today's doses for one patient bucketed to a single [DoseTag] — backs the Scan tab's batch list. */
+    suspend fun getMedicationsForPatientAndTag(patientId: String, tag: DoseTag, date: LocalDate): List<MedicationEntry>
     suspend fun getMedicationsForDate(date: LocalDate): List<MedicationEntry>
     suspend fun getMedicationById(id: String): MedicationEntry?
     suspend fun addMedication(entry: MedicationEntry)

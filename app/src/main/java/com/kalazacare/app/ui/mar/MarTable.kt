@@ -17,9 +17,11 @@ import com.kalazacare.app.data.model.AllotmentStatus
 import com.kalazacare.app.data.model.MedStatus
 import com.kalazacare.app.data.model.MedicationEntry
 import com.kalazacare.app.ui.components.ConfirmDialog
+import com.kalazacare.app.ui.components.DoseTagPicker
 import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.MedStatusBadge
 import com.kalazacare.app.ui.components.TimeOfDayField
+import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.OnSurface
 import com.kalazacare.app.ui.theme.OnSurfaceVariant
@@ -91,7 +93,7 @@ fun MarTable(
                         Text("Dose: ${entry.dose} • Qty: ${entry.quantity}",
                             style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
                         Spacer(Modifier.height(4.dp))
-                        Text("Scheduled: ${DateUtils.formatTime(entry.scheduleTime)}",
+                        Text("Scheduled: ${DateUtils.formatTime(entry.scheduleTime)} • ${entry.tag.label()}",
                             style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariant)
                         if (entry.notes.isNotBlank()) {
                             Spacer(Modifier.height(4.dp))
@@ -178,6 +180,7 @@ private fun EditMedicationDialog(
     var dose     by remember { mutableStateOf(entry.dose) }
     var quantity by remember { mutableStateOf(entry.quantity) }
     var scheduleTime by remember { mutableStateOf(entry.scheduleTime) }
+    var tag      by remember { mutableStateOf(entry.tag) }
     var notes    by remember { mutableStateOf(entry.notes) }
 
     AlertDialog(
@@ -195,6 +198,8 @@ private fun EditMedicationDialog(
                 }
                 Text("Time:", style = MaterialTheme.typography.bodyMedium)
                 TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
+                Text("Tag:", style = MaterialTheme.typography.bodyMedium)
+                DoseTagPicker(selected = tag, onSelect = { tag = it })
                 OutlinedTextField(value = notes, onValueChange = { notes = it },
                     label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth())
             }
@@ -207,6 +212,7 @@ private fun EditMedicationDialog(
                         dose = dose,
                         quantity = quantity,
                         scheduleTime = scheduleTime,
+                        tag = tag,
                         notes = notes,
                     ))
                 },

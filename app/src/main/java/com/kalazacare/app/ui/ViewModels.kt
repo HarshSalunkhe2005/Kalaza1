@@ -454,6 +454,90 @@ class MarViewModel(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Scan (batch QR administration — one scan per patient per DoseTag)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ScanViewModel(
+    private val medRepo: MedicationRepository,
+    private val patientRepo: PatientRepository,
+) : ViewModel() {
+    private val _matchedPatientName = MutableStateFlow<String?>(null)
+    val matchedPatientName: StateFlow<String?> = _matchedPatientName.asStateFlow()
+    private val _matchedTag = MutableStateFlow<DoseTag?>(null)
+    val matchedTag: StateFlow<DoseTag?> = _matchedTag.asStateFlow()
+    private val _meds = MutableStateFlow<List<MedicationEntry>>(emptyList())
+    val meds: StateFlow<List<MedicationEntry>> = _meds.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    private var matchedPatientId: String? = null
+
+    /** Printed QR payload is "<patient name>|<TAG>". */
+    fun onQrDecoded(raw: String) {
+        val parts = raw.split("|", limit = 2)
+        if (parts.size != 2) {
+            _error.value = "Wrong QR — this code isn't a patient dosing QR"
+            return
+        }
+        resolve(parts[0], parts[1])
+    }
+
+    fun onManualEntry(name: String, tag: DoseTag) = resolve(name, tag.name)
+
+    private fun resolve(rawName: String, rawTag: String) {
+        val tag = runCatching { DoseTag.valueOf(rawTag.trim().uppercase()) }.getOrNull()
+        if (tag == null) {
+            _error.value = "Wrong QR — unrecognized time-of-day tag"
+            return
+        }
+        val targetName = normalize(rawName)
+        if (targetName.isEmpty()) {
+            _error.value = "Wrong QR — no patient name on this code"
+            return
+        }
+        viewModelScope.launch {
+            _loading.value = true
+            _error.value = null
+            val patient = patientRepo.getAllPatients().firstOrNull { normalize(it.name) == targetName }
+            if (patient == null) {
+                _error.value = "Wrong QR — no patient named \"$rawName\" found"
+                _loading.value = false
+                return@launch
+            }
+            matchedPatientId = patient.id
+            _matchedPatientName.value = patient.name
+            _matchedTag.value = tag
+            _meds.value = medRepo.getMedicationsForPatientAndTag(patient.id, tag, LocalDate.now())
+            _loading.value = false
+        }
+    }
+
+    fun markGiven(id: String, scannedCode: String) {
+        viewModelScope.launch {
+            medRepo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode)
+            val patientId = matchedPatientId
+            val tag = _matchedTag.value
+            if (patientId != null && tag != null) {
+                _meds.value = medRepo.getMedicationsForPatientAndTag(patientId, tag, LocalDate.now())
+            }
+        }
+    }
+
+    /** Back to the scan-entry state — used for "Scan Another" and to clear a wrong-QR error. */
+    fun reset() {
+        matchedPatientId = null
+        _matchedPatientName.value = null
+        _matchedTag.value = null
+        _meds.value = emptyList()
+        _error.value = null
+    }
+
+    private fun normalize(s: String) = s.trim().lowercase().replace(Regex("\\s+"), " ")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Medicine (supervisor allotment rounds)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1288,6 +1372,7 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(PatientViewModel::class.java)     -> PatientViewModel(patientRepo, approvalRepo, auditRepo, notificationRepo) as T
         modelClass.isAssignableFrom(VitalsViewModel::class.java)      -> VitalsViewModel(vitalsRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(MarViewModel::class.java)         -> MarViewModel(medRepo, allotmentRequestRepo, patientRepo, notificationRepo) as T
+        modelClass.isAssignableFrom(ScanViewModel::class.java)        -> ScanViewModel(medRepo, patientRepo) as T
         modelClass.isAssignableFrom(MedicineViewModel::class.java)    -> MedicineViewModel(medRepo, patientRepo, allotmentRequestRepo, auditRepo, notificationRepo) as T
         modelClass.isAssignableFrom(UtilityViewModel::class.java)     -> UtilityViewModel(utilityRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(DoctorVisitViewModel::class.java) -> DoctorVisitViewModel(doctorVisitRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T

@@ -41,6 +41,7 @@ object Routes {
     const val CONFIG          = "config"
     const val SUMMARY         = "summary"
     const val MEDICINE        = "medicine"
+    const val SCAN            = "scan"
     const val NOTIFICATIONS   = "notifications"
 
     fun patientProfile(id: String) = "patient/$id"
@@ -123,7 +124,7 @@ fun KalazaNavHost(
     // Routes where bottom nav should be visible
     val bottomNavRoutes = setOf(
         Routes.DASHBOARD, Routes.SUPER_ADMIN_OVERVIEW, Routes.TODO_LIST, Routes.APPROVAL_QUEUE,
-        Routes.AUDIT_LOG, Routes.CONFIG, Routes.SUMMARY, Routes.MEDICINE
+        Routes.AUDIT_LOG, Routes.CONFIG, Routes.SUMMARY, Routes.MEDICINE, Routes.SCAN
     )
     val showBottomNav = currentRoute in bottomNavRoutes
 
@@ -301,6 +302,19 @@ fun KalazaNavHost(
                 val notificationVm: NotificationViewModel = viewModel(factory = factory)
                 ReloadOnResume { vm.load(); notificationVm.load() }
                 MedicineScreen(
+                    viewModel = vm,
+                    unreadNotifications = notificationVm.unreadCount.collectAsState().value,
+                    onNotificationsClick = { navController.navigate(Routes.NOTIFICATIONS) },
+                    onLogout = onLogout
+                )
+            }
+
+            // ── Scan (batch QR administration) ───────────────────────────────────
+            composable(Routes.SCAN) {
+                val vm: com.kalazacare.app.ui.ScanViewModel = viewModel(factory = factory)
+                val notificationVm: NotificationViewModel = viewModel(factory = factory)
+                ReloadOnResume { notificationVm.load() }
+                com.kalazacare.app.ui.scan.ScanScreen(
                     viewModel = vm,
                     unreadNotifications = notificationVm.unreadCount.collectAsState().value,
                     onNotificationsClick = { navController.navigate(Routes.NOTIFICATIONS) },

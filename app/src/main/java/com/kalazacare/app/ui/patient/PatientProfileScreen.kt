@@ -42,7 +42,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 
 /**
  * Patient Profile — the central hub for all patient interactions.
- * Uses a tabbed layout with 6 tabs: Info | Vitals | MAR | Utilities | Visits | Notes
+ * Uses a tabbed layout with 6 tabs: Info | Vitals | Med | Utilities | Visits | Notes
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -79,7 +79,7 @@ fun PatientProfileScreen(
         loadAttempted = true
     }
 
-    val tabs = listOf("Info", "Vitals", "MAR", "Utilities", "Visits", "Notes")
+    val tabs = listOf("Info", "Vitals", "Med", "Utilities", "Visits", "Notes")
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
@@ -670,6 +670,7 @@ private fun AddMedicationDialog(
     var dose by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
     var scheduleTime by remember { mutableStateOf(java.time.LocalTime.of(8, 0)) }
+    var tag by remember { mutableStateOf<com.kalazacare.app.data.model.DoseTag?>(null) }
     var notes by remember { mutableStateOf("") }
     var isRecurring by remember { mutableStateOf(true) }
     // ISO day-of-week numbers (1=Mon..7=Sun); empty means every day.
@@ -692,6 +693,8 @@ private fun AddMedicationDialog(
                 }
                 Text("Time:", style = MaterialTheme.typography.bodyMedium)
                 com.kalazacare.app.ui.components.TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
+                Text("Tag (required — matched against the Scan QR):", style = MaterialTheme.typography.bodyMedium)
+                com.kalazacare.app.ui.components.DoseTagPicker(selected = tag, onSelect = { tag = it })
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {
                         Text("Give every day", style = MaterialTheme.typography.bodyMedium)
@@ -756,6 +759,7 @@ private fun AddMedicationDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    val chosenTag = tag ?: return@Button
                     onSave(
                         com.kalazacare.app.data.model.MedicationEntry(
                             patientId = patientId,
@@ -763,6 +767,7 @@ private fun AddMedicationDialog(
                             dose = dose,
                             quantity = quantity,
                             scheduleTime = scheduleTime,
+                            tag = chosenTag,
                             scheduledDate = if (isRecurring) java.time.LocalDate.now() else scheduledDate,
                             isRecurring = isRecurring,
                             recurringDays = if (isRecurring) recurringDays else emptySet(),
@@ -771,7 +776,7 @@ private fun AddMedicationDialog(
                     )
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
-                enabled = name.isNotBlank(),
+                enabled = name.isNotBlank() && tag != null,
             ) { Text("Add") }
         },
         dismissButton = {
