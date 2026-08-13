@@ -26,13 +26,20 @@ import com.kalazacare.app.ui.components.QrScanDialog
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.DateUtils
+import kotlinx.coroutines.delay
+import java.time.LocalTime
+
+/** Staff must read the confirmation popup before it lets them through. */
+private const val CONFIRM_HOLD_SECONDS = 6
 
 /**
  * Batch-QR administration tab. One scan (patient name + dose tag) unlocks
- * that patient's meds for that time-of-day bucket; every dose is confirmed
- * right here, no per-dose QR. A wrong/unmatched QR hard-blocks — the list
- * never shows until the scan (or the manual fallback) resolves to a real
- * patient + tag. Camera flaky? Manual entry fields do the exact same lookup.
+ * that patient's meds for that time-of-day bucket. Doses are picked via
+ * checkbox and confirmed together — e.g. 3 meds all due at 9am get one
+ * "Confirm Given" pass — behind a review popup that lists exactly what's
+ * about to be marked and holds its OK button briefly so it can't be
+ * reflex-tapped past. A wrong/unmatched QR hard-blocks; the manual fallback
+ * does the identical lookup when the camera won't cooperate.
  */
 @Composable
 fun ScanScreen(
@@ -48,6 +55,8 @@ fun ScanScreen(
     val loading by viewModel.loading.collectAsState()
 
     var showQrDialog by remember { mutableStateOf(false) }
+    var selectedIds by remember(patientName, tag) { mutableStateOf<Set<String>>(emptySet()) }
+    var showConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -74,7 +83,11 @@ fun ScanScreen(
                     patientName = patientName!!,
                     tag = tag!!,
                     meds = meds,
-                    onMarkGiven = { id -> viewModel.markGiven(id, "SCAN_TAB:${patientName}|${tag!!.name}") },
+                    selectedIds = selectedIds,
+                    onToggleSelected = { id ->
+                        selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
+                    },
+                    onConfirmSelected = { showConfirmDialog = true },
                     onScanAnother = { viewModel.reset() },
                 )
             }
@@ -90,6 +103,19 @@ fun ScanScreen(
                 showQrDialog = false
             },
             onDismiss = { showQrDialog = false },
+        )
+    }
+
+    if (showConfirmDialog) {
+        val selectedMeds = meds.filter { it.id in selectedIds }
+        ConfirmGivenDialog(
+            meds = selectedMeds,
+            onConfirm = {
+                viewModel.markGivenBatch(selectedIds.toList(), "SCAN_TAB:${patientName}|${tag?.name}")
+                selectedIds = emptySet()
+                showConfirmDialog = false
+            },
+            onDismiss = { showConfirmDialog = false },
         )
     }
 }
@@ -181,14 +207,30 @@ private fun ScanEntry(
     }
 }
 
+/** Why a dose can't be checked off right now — drives both its visual state and whether it's selectable. */
+private enum class DoseEligibility { GIVEN, NOT_YET_DUE, DUE }
+
+private fun MedicationEntry.eligibility(now: LocalTime): DoseEligibility = when {
+    status == MedStatus.ADMINISTERED -> DoseEligibility.GIVEN
+    now.isBefore(scheduleTime) -> DoseEligibility.NOT_YET_DUE
+    else -> DoseEligibility.DUE
+}
+
 @Composable
 private fun MatchedMedsList(
     patientName: String,
     tag: DoseTag,
     meds: List<MedicationEntry>,
-    onMarkGiven: (String) -> Unit,
+    selectedIds: Set<String>,
+    onToggleSelected: (String) -> Unit,
+    onConfirmSelected: () -> Unit,
     onScanAnother: () -> Unit,
 ) {
+    // Recomputed on every recomposition (each mark-given reload, tab revisit, etc.) rather
+    // than pinned once — a med that was "not due yet" when the list first loaded should grey
+    // back in once the clock catches up to it, without needing a fresh scan.
+    val now = LocalTime.now()
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -211,25 +253,31 @@ private fun MatchedMedsList(
             )
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(meds, key = { it.id }) { entry ->
-                    val given = entry.status == MedStatus.ADMINISTERED
+                    val eligibility = entry.eligibility(now)
+                    val contentColor = if (eligibility == DoseEligibility.DUE) MaterialTheme.colorScheme.onSurface else Color.Gray
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = if (given) MaterialTheme.colorScheme.surfaceVariant
-                            else MaterialTheme.colorScheme.surface
+                            containerColor = if (eligibility == DoseEligibility.DUE) MaterialTheme.colorScheme.surface
+                            else MaterialTheme.colorScheme.surfaceVariant
                         ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = if (given) 0.dp else 2.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = if (eligibility == DoseEligibility.DUE) 2.dp else 0.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val contentColor = if (given) Color.Gray else MaterialTheme.colorScheme.onSurface
+                            Checkbox(
+                                checked = entry.id in selectedIds,
+                                onCheckedChange = { onToggleSelected(entry.id) },
+                                enabled = eligibility == DoseEligibility.DUE,
+                                colors = CheckboxDefaults.colors(checkedColor = KalazaRed),
+                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(entry.medicineName, style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold, color = contentColor)
@@ -238,20 +286,83 @@ private fun MatchedMedsList(
                                 Text("Scheduled: ${DateUtils.formatTime(entry.scheduleTime)}",
                                     style = MaterialTheme.typography.labelMedium, color = contentColor)
                             }
-                            Spacer(Modifier.width(12.dp))
-                            if (given) {
-                                MedStatusBadge(status = entry.status)
-                            } else {
-                                Button(
-                                    onClick = { onMarkGiven(entry.id) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                ) { Text("Mark Given") }
+                            Spacer(Modifier.width(8.dp))
+                            when (eligibility) {
+                                DoseEligibility.GIVEN -> MedStatusBadge(status = entry.status)
+                                DoseEligibility.NOT_YET_DUE -> Text(
+                                    "Not due yet", style = MaterialTheme.typography.labelSmall, color = Color.Gray,
+                                )
+                                DoseEligibility.DUE -> {}
                             }
                         }
                     }
                 }
             }
+
+            if (selectedIds.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                ) {
+                    Button(
+                        onClick = onConfirmSelected,
+                        colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    ) { Text("Confirm ${selectedIds.size} Given") }
+                }
+            }
         }
     }
+}
+
+/**
+ * Lists exactly what's about to be marked given and holds OK for
+ * [CONFIRM_HOLD_SECONDS] so a staff member can't reflex-tap through a batch
+ * without actually reading it — Cancel stays live the whole time.
+ */
+@Composable
+private fun ConfirmGivenDialog(
+    meds: List<MedicationEntry>,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var secondsLeft by remember { mutableStateOf(CONFIRM_HOLD_SECONDS) }
+    LaunchedEffect(Unit) {
+        while (secondsLeft > 0) {
+            delay(1000)
+            secondsLeft -= 1
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Confirm Medicines Given", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "Double-check this list against what's actually in hand before confirming:",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                meds.forEach { entry ->
+                    Text(
+                        "• ${entry.medicineName} — ${entry.dose}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = secondsLeft == 0,
+                colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
+            ) { Text(if (secondsLeft > 0) "OK ($secondsLeft)" else "OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }

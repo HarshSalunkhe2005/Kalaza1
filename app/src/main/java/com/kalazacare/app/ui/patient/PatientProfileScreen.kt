@@ -29,11 +29,14 @@ import com.kalazacare.app.ui.*
 import com.kalazacare.app.ui.components.ConfirmDialog
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.components.QrScanDialog
+import com.kalazacare.app.ui.components.label
+import com.kalazacare.app.ui.components.matches
 import com.kalazacare.app.ui.mar.MarTable
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.White
 import com.kalazacare.app.ui.utility.UtilityTable
 import com.kalazacare.app.ui.vitals.VitalsTable
+import com.kalazacare.app.util.DateUtils
 import com.kalazacare.app.util.SessionManager
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -680,6 +683,7 @@ private fun AddMedicationDialog(
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = scheduledDate.toEpochDay() * 86_400_000L
     )
+    val tagTimeMismatch = tag?.let { !it.matches(scheduleTime) } ?: false
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -695,6 +699,13 @@ private fun AddMedicationDialog(
                 com.kalazacare.app.ui.components.TimeOfDayField(initial = scheduleTime, onChange = { scheduleTime = it })
                 Text("Tag (required — matched against the Scan QR):", style = MaterialTheme.typography.bodyMedium)
                 com.kalazacare.app.ui.components.DoseTagPicker(selected = tag, onSelect = { tag = it })
+                if (tagTimeMismatch) {
+                    Text(
+                        "${DateUtils.formatTime(scheduleTime)} doesn't fall in ${tag?.label()}'s usual window — pick a time that matches, or change the tag.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {
                         Text("Give every day", style = MaterialTheme.typography.bodyMedium)
@@ -776,7 +787,7 @@ private fun AddMedicationDialog(
                     )
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
-                enabled = name.isNotBlank() && tag != null,
+                enabled = name.isNotBlank() && tag != null && !tagTimeMismatch,
             ) { Text("Add") }
         },
         dismissButton = {

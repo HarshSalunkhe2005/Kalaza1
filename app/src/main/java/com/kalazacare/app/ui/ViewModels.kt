@@ -514,9 +514,13 @@ class ScanViewModel(
         }
     }
 
-    fun markGiven(id: String, scannedCode: String) {
+    fun markGiven(id: String, scannedCode: String) = markGivenBatch(listOf(id), scannedCode)
+
+    /** Confirms several doses from one scan in one go (e.g. 3 meds all due at 9am) — one list refresh at the end, not one per dose. */
+    fun markGivenBatch(ids: List<String>, scannedCode: String) {
+        if (ids.isEmpty()) return
         viewModelScope.launch {
-            medRepo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode)
+            ids.forEach { id -> medRepo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode) }
             val patientId = matchedPatientId
             val tag = _matchedTag.value
             if (patientId != null && tag != null) {
