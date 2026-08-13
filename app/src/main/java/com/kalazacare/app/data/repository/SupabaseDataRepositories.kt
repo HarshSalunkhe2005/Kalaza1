@@ -161,6 +161,11 @@ private data class MedicationRow(
     @SerialName("is_recurring") val isRecurring: Boolean = true,
     // Comma-separated ISO day-of-week numbers (1=Mon..7=Sun), e.g. "1,3,5".
     // Empty/blank means every day -- see MedicationEntry.recurringDays.
+    // @EncodeDefault(ALWAYS) for the same reason as [tag] above -- clearing
+    // a dose back to "every day" (recurringDays = "") matches this field's
+    // Kotlin default and would otherwise get silently dropped from an edit's
+    // PATCH request, leaving the old weekday restriction in place server-side.
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("recurring_days") val recurringDays: String = "",
     val status: String = "PENDING",
     @SerialName("administered_by") val administeredBy: String = "",
