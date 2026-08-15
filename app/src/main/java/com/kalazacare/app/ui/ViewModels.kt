@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.messaging.FirebaseMessaging
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
+import com.kalazacare.app.util.AppErrors
 import com.kalazacare.app.util.SessionManager
 import com.kalazacare.app.util.subscribeToTableChanges
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +18,33 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
 import java.time.LocalDateTime
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Every ViewModel action used to be a bare `viewModelScope.launch { ... }` with
+// no exception handling anywhere — a single failed backend call (RLS denial,
+// dropped connection, a genuine server error) threw all the way up to the
+// process's uncaught-exception handler and killed the whole app (see
+// CrashHandler.kt — it makes the crash screen nicer, it doesn't prevent the
+// crash). [safeLaunch] is the drop-in replacement: same call shape, but a
+// failure is caught, logged, and reported to [AppErrors] as a Toast instead
+// of taking the app down. [description] is a short, present-tense verb
+// phrase ("send that request", "save this patient") used to word the Toast;
+// leave it blank for a background refresh where a silent failure is fine to
+// just log.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun ViewModel.safeLaunch(
+    description: String = "",
+    block: suspend () -> Unit,
+): Job = viewModelScope.launch {
+    try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        AppErrors.report(description, e)
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Login
@@ -33,7 +63,7 @@ class LoginViewModel(
             return
         }
         _loginState.value = LoginState.Loading
-        viewModelScope.launch {
+        safeLaunch {
             val staff = authRepo.login(name, password)
             if (staff != null) {
                 SessionManager.setCurrentStaff(staff)
@@ -49,7 +79,7 @@ class LoginViewModel(
     }
 
     private fun registerPushToken(staffId: String) {
-        viewModelScope.launch {
+        safeLaunch {
             runCatching {
                 val token = FirebaseMessaging.getInstance().token.await()
                 staffRepo.updateFcmToken(staffId, token)
@@ -98,7 +128,7 @@ class DashboardViewModel(
     }
 
     fun load() {
-        viewModelScope.launch {
+        safeLaunch {
             _isLoading.value = true
             val allPatients = patientRepo.getAllPatients()
             _totalPatients.value = allPatients.size
@@ -114,7 +144,7 @@ class DashboardViewModel(
     fun search(query: String) { _searchQuery.value = query; applyFilters() }
     fun setShowArchived(show: Boolean) { _showArchived.value = show; applyFilters() }
     private fun applyFilters() {
-        viewModelScope.launch {
+        safeLaunch {
             val query = _searchQuery.value
             _patients.value = if (query.isBlank()) patientRepo.getAllPatients(includeArchived = _showArchived.value)
                               else patientRepo.searchPatients(query, includeArchived = _showArchived.value)
@@ -155,7 +185,7 @@ class DailySummaryViewModel(
     init { load() }
 
     fun load() {
-        viewModelScope.launch {
+        safeLaunch {
             _isLoading.value = true
             val today = LocalDate.now()
             val patients = patientRepo.getAllPatients()
@@ -196,12 +226,12 @@ class PatientViewModel(
     val patient: StateFlow<Patient?> = _patient.asStateFlow()
 
     fun load(patientId: String) {
-        viewModelScope.launch { _patient.value = patientRepo.getPatientById(patientId) }
+        safeLaunch { _patient.value = patientRepo.getPatientById(patientId) }
     }
 
     // All roles can edit; staff edits go to the approval queue, Super Admin saves directly.
     fun saveOrRequestApproval(original: Patient, updated: Patient, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+        safeLaunch("save this patient") {
             if (SessionManager.isAdmin()) {
                 if (updated.id.isEmpty()) {
                     val saved = patientRepo.addPatient(updated)
@@ -242,7 +272,7 @@ class PatientViewModel(
                 if (original.emergencyPhone != updated.emergencyPhone) changes.add("Emergency Phone" to (original.emergencyPhone to updated.emergencyPhone))
                 if (original.primaryDiagnosis != updated.primaryDiagnosis) changes.add("Primary Diagnosis" to (original.primaryDiagnosis to updated.primaryDiagnosis))
                 if (original.admissionDate != updated.admissionDate) changes.add("Admission Date" to (original.admissionDate.toString() to updated.admissionDate.toString()))
-                if (changes.isEmpty()) { onResult(false, "No changes detected"); return@launch }
+                if (changes.isEmpty()) { onResult(false, "No changes detected"); return@safeLaunch }
                 changes.forEach { (field, vals) ->
                     approvalRepo.submitRequest(ApprovalRequest(
                         patientId = original.id,
@@ -267,7 +297,7 @@ class PatientViewModel(
     }
 
     fun archivePatient(patient: Patient) {
-        viewModelScope.launch {
+        safeLaunch("archive this patient") {
             patientRepo.archivePatient(patient.id)
             auditRepo.addLog(AuditLogEntry(
                 action = "Patient Archived",
@@ -282,7 +312,7 @@ class PatientViewModel(
     }
 
     fun unarchivePatient(patient: Patient) {
-        viewModelScope.launch {
+        safeLaunch("restore this patient") {
             patientRepo.unarchivePatient(patient.id)
             auditRepo.addLog(AuditLogEntry(
                 action = "Patient Unarchived",
@@ -311,15 +341,15 @@ class VitalsViewModel(
     private val _vitals = MutableStateFlow<List<VitalRecord>>(emptyList())
     val vitals: StateFlow<List<VitalRecord>> = _vitals.asStateFlow()
 
-    fun load(patientId: String) { viewModelScope.launch { _vitals.value = repo.getVitalsForPatient(patientId) } }
+    fun load(patientId: String) { safeLaunch { _vitals.value = repo.getVitalsForPatient(patientId) } }
     fun addVital(record: VitalRecord) {
-        viewModelScope.launch { repo.addVital(record); _vitals.value = repo.getVitalsForPatient(record.patientId) }
+        safeLaunch { repo.addVital(record); _vitals.value = repo.getVitalsForPatient(record.patientId) }
     }
 
     // Edits within 24h of the original entry apply directly for every role (mistakes
     // happen, all changes are logged); after 24h, non-admin edits go through approval.
     fun updateVital(original: VitalRecord, updated: VitalRecord, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+        safeLaunch("update this vitals record") {
             val withinGraceWindow = LocalDateTime.of(original.date, original.time).plusHours(24).isAfter(LocalDateTime.now())
             if (SessionManager.isAdmin() || withinGraceWindow) {
                 repo.updateVital(updated)
@@ -335,7 +365,7 @@ class VitalsViewModel(
                 ))
                 _vitals.value = repo.getVitalsForPatient(updated.patientId)
                 onResult(true, "Vitals updated")
-                return@launch
+                return@safeLaunch
             }
             val changes = mutableListOf<Pair<String, Pair<String, String>>>()
             if (original.pulse != updated.pulse) changes.add("Pulse" to (original.pulse to updated.pulse))
@@ -344,7 +374,7 @@ class VitalsViewModel(
             if (original.temperature != updated.temperature) changes.add("Temperature" to (original.temperature to updated.temperature))
             if (original.sugarFasting != updated.sugarFasting) changes.add("Sugar (Fasting)" to (original.sugarFasting to updated.sugarFasting))
             if (original.sugarPP != updated.sugarPP) changes.add("Sugar (PP)" to (original.sugarPP to updated.sugarPP))
-            if (changes.isEmpty()) { onResult(false, "No changes detected"); return@launch }
+            if (changes.isEmpty()) { onResult(false, "No changes detected"); return@safeLaunch }
             val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
             changes.forEach { (field, vals) ->
                 approvalRepo.submitRequest(ApprovalRequest(
@@ -388,11 +418,11 @@ class MarViewModel(
 
     fun load(patientId: String, date: LocalDate = LocalDate.now()) {
         _selectedDate.value = date
-        viewModelScope.launch { _medications.value = repo.getMedicationsForPatient(patientId, date) }
+        safeLaunch { _medications.value = repo.getMedicationsForPatient(patientId, date) }
     }
 
     fun markAdministered(id: String, scannedCode: String) {
-        viewModelScope.launch {
+        safeLaunch("mark this dose as given") {
             repo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode)
             val patientId = _medications.value.firstOrNull { it.id == id }?.patientId
             if (patientId != null) load(patientId, _selectedDate.value)
@@ -404,15 +434,15 @@ class MarViewModel(
     // button out with), so a real request looked identical to a silently
     // no-op'd duplicate. onResult surfaces which one actually happened.
     fun requestAllotment(entry: MedicationEntry, onResult: (message: String) -> Unit = {}) {
-        viewModelScope.launch {
+        safeLaunch {
             if (entry.allotmentStatus == AllotmentStatus.ALLOTTED) {
                 onResult("${entry.medicineName} was already allotted.")
-                return@launch
+                return@safeLaunch
             }
             // Don't duplicate an already-pending request for the same entry
             if (allotmentRequestRepo.getByMedicationEntryId(entry.id) != null) {
                 onResult("Already requested — waiting on a Supervisor to allot it.")
-                return@launch
+                return@safeLaunch
             }
             val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
             allotmentRequestRepo.submitRequest(AllotmentRequest(
@@ -438,7 +468,7 @@ class MarViewModel(
 
     fun addMedication(entry: MedicationEntry, onResult: (warning: String?) -> Unit = {}) {
         if (!SessionManager.isAdmin()) return
-        viewModelScope.launch {
+        safeLaunch("add this medication") {
             val admissionDate = patientRepo.getPatientById(entry.patientId)?.admissionDate
             val warning = if (admissionDate != null && entry.scheduledDate.isBefore(admissionDate))
                 "Warning: this dose is scheduled before the patient's admission date ($admissionDate)"
@@ -452,7 +482,7 @@ class MarViewModel(
     // Edit existing medication entry (SuperAdmin only)
     fun updateMedication(entry: MedicationEntry) {
         if (!SessionManager.isAdmin()) return
-        viewModelScope.launch { repo.updateMedication(entry); load(entry.patientId, entry.scheduledDate) }
+        safeLaunch { repo.updateMedication(entry); load(entry.patientId, entry.scheduledDate) }
     }
 
     // Add/edit/delete of MAR entries is SuperAdmin-only (enforced in the UI too,
@@ -460,7 +490,7 @@ class MarViewModel(
     // other privileged mutation in this file).
     fun deleteMedication(entry: MedicationEntry) {
         if (!SessionManager.isAdmin()) return
-        viewModelScope.launch { repo.deleteMedication(entry.id); load(entry.patientId, entry.scheduledDate) }
+        safeLaunch { repo.deleteMedication(entry.id); load(entry.patientId, entry.scheduledDate) }
     }
 }
 
@@ -508,14 +538,14 @@ class ScanViewModel(
             _error.value = "Wrong QR — no patient name on this code"
             return
         }
-        viewModelScope.launch {
+        safeLaunch {
             _loading.value = true
             _error.value = null
             val patient = patientRepo.getAllPatients().firstOrNull { normalize(it.name) == targetName }
             if (patient == null) {
                 _error.value = "Wrong QR — no patient named \"$rawName\" found"
                 _loading.value = false
-                return@launch
+                return@safeLaunch
             }
             matchedPatientId = patient.id
             _matchedPatientName.value = patient.name
@@ -530,7 +560,7 @@ class ScanViewModel(
     /** Confirms several doses from one scan in one go (e.g. 3 meds all due at 9am) — one list refresh at the end, not one per dose. */
     fun markGivenBatch(ids: List<String>, scannedCode: String) {
         if (ids.isEmpty()) return
-        viewModelScope.launch {
+        safeLaunch("mark these doses as given") {
             ids.forEach { id -> medRepo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode) }
             val patientId = matchedPatientId
             val tag = _matchedTag.value
@@ -581,7 +611,7 @@ class MedicineViewModel(
     }
 
     fun load() {
-        viewModelScope.launch {
+        safeLaunch {
             val today = medRepo.getMedicationsForDate(LocalDate.now())
             _dueForAllotment.value = today
                 .filter { it.allotmentStatus == AllotmentStatus.NOT_ALLOTTED && it.status != MedStatus.ADMINISTERED }
@@ -595,13 +625,13 @@ class MedicineViewModel(
     }
 
     fun allot(entry: MedicationEntry, scannedCode: String) {
-        viewModelScope.launch { allotWithoutReload(entry, scannedCode); load() }
+        safeLaunch { allotWithoutReload(entry, scannedCode); load() }
     }
 
     // fulfillRequest takes the request and looks up the entry itself so it never
     // silently fails when the entry isn't in dueForAllotment (e.g. already allotted)
     fun fulfillRequest(request: AllotmentRequest, scannedCode: String) {
-        viewModelScope.launch {
+        safeLaunch("fulfill this allotment request") {
             val entry = medRepo.getMedicationById(request.medicationEntryId)
             if (entry != null && entry.allotmentStatus == AllotmentStatus.NOT_ALLOTTED) {
                 allotWithoutReload(entry, scannedCode)
@@ -659,7 +689,7 @@ class TodoListViewModel(
     }
 
     fun load() {
-        viewModelScope.launch {
+        safeLaunch {
             _isLoading.value = true
             val today = medRepo.getMedicationsForDate(LocalDate.now())
             _tasks.value = today
@@ -689,15 +719,15 @@ class NotificationViewModel(private val repo: NotificationRepository) : ViewMode
     }
     fun load() {
         val staff = SessionManager.getCurrentStaff() ?: return
-        viewModelScope.launch {
+        safeLaunch {
             _notifications.value = repo.getForRecipient(staff.id, staff.role)
             _unreadCount.value = repo.getUnreadCountForRecipient(staff.id, staff.role)
         }
     }
-    fun markRead(id: String) { viewModelScope.launch { repo.markRead(id); load() } }
+    fun markRead(id: String) { safeLaunch { repo.markRead(id); load() } }
     fun markAllRead() {
         val staff = SessionManager.getCurrentStaff() ?: return
-        viewModelScope.launch { repo.markAllReadForRecipient(staff.id, staff.role); load() }
+        safeLaunch { repo.markAllReadForRecipient(staff.id, staff.role); load() }
     }
 }
 
@@ -721,19 +751,19 @@ class UtilityViewModel(
     private val _allItems = MutableStateFlow<List<UtilityItem>>(emptyList())
     val allItems: StateFlow<List<UtilityItem>> = _allItems.asStateFlow()
     fun load(patientId: String) {
-        viewModelScope.launch {
+        safeLaunch {
             _records.value = repo.getUtilityForPatient(patientId)
             _items.value = repo.getUtilityItems()
             _allItems.value = repo.getAllUtilityItems()
         }
     }
     fun addRecord(record: UtilityRecord) {
-        viewModelScope.launch { repo.addUtilityRecord(record); load(record.patientId) }
+        safeLaunch { repo.addUtilityRecord(record); load(record.patientId) }
     }
 
     // Same 24h-grace-then-approval policy as Vitals.
     fun updateRecord(original: UtilityRecord, updated: UtilityRecord, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+        safeLaunch("update this utility record") {
             val withinGraceWindow = LocalDateTime.of(original.date, original.time).plusHours(24).isAfter(LocalDateTime.now())
             if (SessionManager.isAdmin() || withinGraceWindow) {
                 repo.updateUtilityRecord(updated)
@@ -749,13 +779,13 @@ class UtilityViewModel(
                 ))
                 load(updated.patientId)
                 onResult(true, "Utility record updated")
-                return@launch
+                return@safeLaunch
             }
             val changes = mutableListOf<Pair<String, Pair<String, String>>>()
             if (original.issuedToCaregiver != updated.issuedToCaregiver) changes.add("Issued To" to (original.issuedToCaregiver to updated.issuedToCaregiver))
             if (original.issuedBySupervisor != updated.issuedBySupervisor) changes.add("Issued By" to (original.issuedBySupervisor to updated.issuedBySupervisor))
             if (original.checkedBy != updated.checkedBy) changes.add("Checked By" to (original.checkedBy to updated.checkedBy))
-            if (changes.isEmpty()) { onResult(false, "No changes detected"); return@launch }
+            if (changes.isEmpty()) { onResult(false, "No changes detected"); return@safeLaunch }
             val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
             changes.forEach { (field, vals) ->
                 approvalRepo.submitRequest(ApprovalRequest(
@@ -795,14 +825,14 @@ class DoctorVisitViewModel(
 ) : ViewModel() {
     private val _visits = MutableStateFlow<List<DoctorVisit>>(emptyList())
     val visits: StateFlow<List<DoctorVisit>> = _visits.asStateFlow()
-    fun load(patientId: String) { viewModelScope.launch { _visits.value = repo.getVisitsForPatient(patientId) } }
+    fun load(patientId: String) { safeLaunch { _visits.value = repo.getVisitsForPatient(patientId) } }
     fun addVisit(visit: DoctorVisit) {
-        viewModelScope.launch { repo.addVisit(visit); load(visit.patientId) }
+        safeLaunch { repo.addVisit(visit); load(visit.patientId) }
     }
 
     // Non-admin edits to a visit go through approval, same as Patient edits
     fun updateVisit(original: DoctorVisit, updated: DoctorVisit, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+        safeLaunch("update this doctor visit") {
             if (SessionManager.isAdmin()) {
                 repo.updateVisit(updated)
                 auditRepo.addLog(AuditLogEntry(
@@ -825,7 +855,7 @@ class DoctorVisitViewModel(
                 if (original.notes != updated.notes) changes.add("Notes" to (original.notes to updated.notes))
                 if (original.nextVisitDate != updated.nextVisitDate) changes.add("Next Visit Date" to ((original.nextVisitDate?.toString() ?: "") to (updated.nextVisitDate?.toString() ?: "")))
                 if (original.prescriptionChanges != updated.prescriptionChanges) changes.add("Prescription Changes" to (original.prescriptionChanges to updated.prescriptionChanges))
-                if (changes.isEmpty()) { onResult(false, "No changes detected"); return@launch }
+                if (changes.isEmpty()) { onResult(false, "No changes detected"); return@safeLaunch }
                 val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
                 changes.forEach { (field, vals) ->
                     approvalRepo.submitRequest(ApprovalRequest(
@@ -853,7 +883,7 @@ class DoctorVisitViewModel(
     }
 
     fun confirmVisit(visit: DoctorVisit) {
-        viewModelScope.launch {
+        safeLaunch("confirm this visit") {
             // Mark confirmed + archive if date has passed
             val shouldArchive = !visit.date.isAfter(LocalDate.now())
             repo.updateVisit(visit.copy(isConfirmed = true, isArchived = shouldArchive))
@@ -872,7 +902,7 @@ class DoctorVisitViewModel(
 
     // Delete always goes through approval for non-admin; SuperAdmin deletes directly.
     fun requestDelete(visit: DoctorVisit, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+        safeLaunch("delete this doctor visit") {
             val patientName = patientRepo.getPatientById(visit.patientId)?.name ?: ""
             if (SessionManager.isAdmin()) {
                 repo.deleteVisit(visit.id)
@@ -926,9 +956,9 @@ class CareNoteViewModel(
 ) : ViewModel() {
     private val _notes = MutableStateFlow<List<CareNote>>(emptyList())
     val notes: StateFlow<List<CareNote>> = _notes.asStateFlow()
-    fun load(patientId: String) { viewModelScope.launch { _notes.value = repo.getNotesForPatient(patientId) } }
+    fun load(patientId: String) { safeLaunch { _notes.value = repo.getNotesForPatient(patientId) } }
     fun addNote(patientId: String, noteText: String) {
-        viewModelScope.launch {
+        safeLaunch("add this note") {
             repo.addNote(CareNote(
                 patientId = patientId,
                 staffId   = SessionManager.getCurrentStaffId(),
@@ -942,7 +972,7 @@ class CareNoteViewModel(
     // Same 24h-grace-then-approval policy as Vitals/Utility.
     fun updateNote(original: CareNote, newText: String, onResult: (Boolean, String) -> Unit) {
         if (original.note == newText) { onResult(false, "No changes detected"); return }
-        viewModelScope.launch {
+        safeLaunch("update this note") {
             val withinGraceWindow = original.timestamp.plusHours(24).isAfter(LocalDateTime.now())
             if (SessionManager.isAdmin() || withinGraceWindow) {
                 repo.updateNote(original.copy(note = newText))
@@ -958,7 +988,7 @@ class CareNoteViewModel(
                 ))
                 load(original.patientId)
                 onResult(true, "Note updated")
-                return@launch
+                return@safeLaunch
             }
             val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
             approvalRepo.submitRequest(ApprovalRequest(
@@ -1004,7 +1034,7 @@ class ApprovalViewModel(
         load()
         subscribeToTableChanges(viewModelScope, "approval_requests") { load() }
     }
-    fun load() { viewModelScope.launch { _requests.value = repo.getAllRequests() } }
+    fun load() { safeLaunch { _requests.value = repo.getAllRequests() } }
 
     /**
      * Reads the field's *current* value straight from the live record, so [approve] can
@@ -1063,8 +1093,8 @@ class ApprovalViewModel(
     }
 
     fun approve(id: String) {
-        viewModelScope.launch {
-            val request = repo.getRequestById(id) ?: return@launch
+        safeLaunch("approve this request") {
+            val request = repo.getRequestById(id) ?: return@safeLaunch
 
             // The record may have been deleted, or edited again, by someone else while this
             // request sat pending — applying it blindly would either no-op (but still claim
@@ -1072,11 +1102,11 @@ class ApprovalViewModel(
             val liveValue = currentFieldValue(request)
             if (liveValue == null) {
                 rejectStale(request, "the record this change targeted no longer exists")
-                return@launch
+                return@safeLaunch
             }
             if (request.action != ApprovalAction.DELETE && liveValue != request.oldValue) {
                 rejectStale(request, "the record changed since this request was submitted")
-                return@launch
+                return@safeLaunch
             }
 
             repo.approve(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName())
@@ -1149,8 +1179,8 @@ class ApprovalViewModel(
     }
 
     fun reject(id: String, reason: String) {
-        viewModelScope.launch {
-            val request = repo.getRequestById(id) ?: return@launch
+        safeLaunch("reject this request") {
+            val request = repo.getRequestById(id) ?: return@safeLaunch
             repo.reject(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName(), reason)
             auditRepo.addLog(AuditLogEntry(
                 action = "Edit Request Rejected",
@@ -1224,7 +1254,7 @@ class AuditLogViewModel(private val repo: AuditRepository) : ViewModel() {
     private val _logs = MutableStateFlow<List<AuditLogEntry>>(emptyList())
     val logs: StateFlow<List<AuditLogEntry>> = _logs.asStateFlow()
     init { load() }
-    fun load() { viewModelScope.launch { _logs.value = repo.getAllLogs() } }
+    fun load() { safeLaunch { _logs.value = repo.getAllLogs() } }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1240,13 +1270,13 @@ class ConfigViewModel(
     private val _utilItems = MutableStateFlow<List<UtilityItem>>(emptyList())
     val utilItems: StateFlow<List<UtilityItem>> = _utilItems.asStateFlow()
     init { load() }
-    fun load() { viewModelScope.launch { refreshStaff(); refreshItems() } }
+    fun load() { safeLaunch { refreshStaff(); refreshItems() } }
     private suspend fun refreshStaff() { _staffList.value = staffRepo.getAllStaff() }
     private suspend fun refreshItems() { _utilItems.value = utilityRepo.getAllUtilityItems() }
 
     /** [password] is assigned by the Super Admin right now, at creation time — there's no separate invite/setup step. */
     fun addStaff(name: String, email: String, phone: String, role: UserRole, password: String, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+        safeLaunch("add this staff member") {
             try {
                 staffRepo.addStaff(name, email, phone, role, password)
                 refreshStaff()
@@ -1258,12 +1288,12 @@ class ConfigViewModel(
             }
         }
     }
-    fun revokeStaff(id: String) { viewModelScope.launch { staffRepo.revokeStaff(id); refreshStaff() } }
-    fun unrevokeStaff(id: String) { viewModelScope.launch { staffRepo.unrevokeStaff(id); refreshStaff() } }
-    fun deleteStaff(id: String) { viewModelScope.launch { staffRepo.deleteStaff(id); refreshStaff() } }
-    fun addUtilityItem(item: UtilityItem) { viewModelScope.launch { utilityRepo.addUtilityItem(item); refreshItems() } }
-    fun updateUtilityItem(item: UtilityItem) { viewModelScope.launch { utilityRepo.updateUtilityItem(item); refreshItems() } }
-    fun deleteUtilityItem(id: String) { viewModelScope.launch { utilityRepo.deleteUtilityItem(id); refreshItems() } }
+    fun revokeStaff(id: String) { safeLaunch { staffRepo.revokeStaff(id); refreshStaff() } }
+    fun unrevokeStaff(id: String) { safeLaunch { staffRepo.unrevokeStaff(id); refreshStaff() } }
+    fun deleteStaff(id: String) { safeLaunch { staffRepo.deleteStaff(id); refreshStaff() } }
+    fun addUtilityItem(item: UtilityItem) { safeLaunch { utilityRepo.addUtilityItem(item); refreshItems() } }
+    fun updateUtilityItem(item: UtilityItem) { safeLaunch { utilityRepo.updateUtilityItem(item); refreshItems() } }
+    fun deleteUtilityItem(id: String) { safeLaunch { utilityRepo.deleteUtilityItem(id); refreshItems() } }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1314,7 +1344,7 @@ class SummaryViewModel(
     init { load(LocalDate.now(), LocalDate.now()) }
 
     fun load(start: LocalDate, end: LocalDate) {
-        viewModelScope.launch {
+        safeLaunch {
             _isLoading.value = true
             val from = if (start.isAfter(end)) end else start
             val to   = if (start.isAfter(end)) start else end

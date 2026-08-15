@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import androidx.core.view.WindowCompat
@@ -24,6 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.kalazacare.app.service.EXTRA_TARGET_ROUTE
 import com.kalazacare.app.ui.navigation.KalazaNavHost
 import com.kalazacare.app.ui.theme.KalazaTheme
+import com.kalazacare.app.util.AppErrors
 
 class MainActivity : ComponentActivity() {
     private var pendingRouteState = mutableStateOf<String?>(null)
@@ -45,6 +48,16 @@ class MainActivity : ComponentActivity() {
                     val requestNotificationPermission = rememberLauncherForActivityResult(
                         ActivityResultContracts.RequestPermission()
                     ) { /* no-op either way — notifications just won't show if denied */ }
+
+                    // Single collector for every ViewModel's safeLaunch failures — see
+                    // AppErrors.kt. Without this, a caught-but-unreported exception would
+                    // fail exactly as silently as an uncaught one used to crash loudly.
+                    val toastContext = LocalContext.current
+                    LaunchedEffect(Unit) {
+                        AppErrors.events.collect { message ->
+                            Toast.makeText(toastContext, message, Toast.LENGTH_LONG).show()
+                        }
+                    }
 
                     LaunchedEffect(Unit) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
