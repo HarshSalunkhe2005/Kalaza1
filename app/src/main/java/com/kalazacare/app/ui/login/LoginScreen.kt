@@ -234,11 +234,16 @@ fun LoginScreen(
                     text = {
                         Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                             Text("Please connect to the facility's Wi-Fi network to continue.")
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Debug info:\n" + wifiDebugDump(context),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            // Raw SDK/manufacturer/permission/gateway-IP dump was shown to every
+                            // staff member unconditionally — meaningless (and slightly leaky)
+                            // for actual end users. Debug builds still get it for troubleshooting.
+                            if (com.kalazacare.app.BuildConfig.DEBUG) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Debug info:\n" + wifiDebugDump(context),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                             TestingSkipSwitchRow(skipWifiCheckForTesting) { skipWifiCheckForTesting = it }
                         }
                     },
