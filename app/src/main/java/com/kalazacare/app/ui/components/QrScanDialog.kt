@@ -74,6 +74,11 @@ fun QrScanDialog(
     }
     var scannedCode by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    // Camera's the default path, but it isn't always workable (broken scanner,
+    // damaged/missing QR, permission denied on a shared device) — manual entry
+    // is always one tap away instead of being a dead end.
+    var manualEntryMode by remember { mutableStateOf(false) }
+    var manualText by remember { mutableStateOf("") }
 
     val requestCameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasCameraPermission = granted
@@ -107,18 +112,46 @@ fun QrScanDialog(
                             TextButton(onClick = { scannedCode = null }) { Text("Scan again") }
                         }
                     }
+                    manualEntryMode -> {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = manualText,
+                                onValueChange = { manualText = it },
+                                label = { Text("Code") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = { scannedCode = manualText },
+                                enabled = manualText.isNotBlank(),
+                                colors = ButtonDefaults.buttonColors(containerColor = KalazaRed, contentColor = White),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Use This Code") }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            TextButton(onClick = { manualEntryMode = false; manualText = "" }) { Text("Use camera instead") }
+                        }
+                    }
                     !hasCameraPermission -> {
-                        OutlinedButton(onClick = { requestCameraPermission.launch(Manifest.permission.CAMERA) }) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Grant Camera Access")
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { requestCameraPermission.launch(Manifest.permission.CAMERA) }) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Grant Camera Access")
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(onClick = { manualEntryMode = true }) { Text("Or enter the code manually") }
                         }
                     }
                     else -> {
-                        QrCameraPreview(
-                            onDecoded = { code -> scannedCode = code },
-                            onError = { errorMessage = it },
-                        )
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            QrCameraPreview(
+                                onDecoded = { code -> scannedCode = code },
+                                onError = { errorMessage = it },
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(onClick = { manualEntryMode = true }) { Text("Camera not working? Enter code manually") }
+                        }
                     }
                 }
                 if (errorMessage != null) {
