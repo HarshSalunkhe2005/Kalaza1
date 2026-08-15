@@ -399,11 +399,21 @@ class MarViewModel(
         }
     }
 
-    fun requestAllotment(entry: MedicationEntry) {
+    // Tapping the button gave zero feedback either way (nothing on screen
+    // changes — the entry has no "request already pending" flag to grey the
+    // button out with), so a real request looked identical to a silently
+    // no-op'd duplicate. onResult surfaces which one actually happened.
+    fun requestAllotment(entry: MedicationEntry, onResult: (message: String) -> Unit = {}) {
         viewModelScope.launch {
-            if (entry.allotmentStatus == AllotmentStatus.ALLOTTED) return@launch
+            if (entry.allotmentStatus == AllotmentStatus.ALLOTTED) {
+                onResult("${entry.medicineName} was already allotted.")
+                return@launch
+            }
             // Don't duplicate an already-pending request for the same entry
-            if (allotmentRequestRepo.getByMedicationEntryId(entry.id) != null) return@launch
+            if (allotmentRequestRepo.getByMedicationEntryId(entry.id) != null) {
+                onResult("Already requested — waiting on a Supervisor to allot it.")
+                return@launch
+            }
             val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
             allotmentRequestRepo.submitRequest(AllotmentRequest(
                 medicationEntryId = entry.id,
@@ -422,6 +432,7 @@ class MarViewModel(
                 message = "${SessionManager.getCurrentStaffName()} flagged ${entry.medicineName} for $patientName as not yet allotted",
                 targetRoute = "medicine",
             ))
+            onResult("Allotment request sent — a Supervisor has been notified.")
         }
     }
 

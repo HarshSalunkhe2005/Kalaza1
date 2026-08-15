@@ -611,7 +611,11 @@ private fun MarTabContent(
         MarTable(
             medications = medications,
             onMarkAdministered = { id -> administerTargetId = id },
-            onRequestAllotment = { entry -> marVm.requestAllotment(entry) },
+            onRequestAllotment = { entry ->
+                marVm.requestAllotment(entry) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            },
             onEditMedication   = { updated -> marVm.updateMedication(updated) },
             onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
         )
