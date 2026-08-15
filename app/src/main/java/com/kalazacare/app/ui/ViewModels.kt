@@ -679,12 +679,14 @@ class MedicineViewModel(
             SessionManager.getCurrentStaffName(),
             scannedCode,
         )
+        val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: entry.patientId
         auditRepo.addLog(AuditLogEntry(
             action = "Medication Allotted",
             performedById = SessionManager.getCurrentStaffId(),
             performedByName = SessionManager.getCurrentStaffName(),
             targetPatientId = entry.patientId,
-            details = "${entry.medicineName} ${entry.dose} allotted for ${entry.patientId}",
+            targetPatientName = patientName,
+            details = "${entry.medicineName} ${entry.dose} allotted for $patientName",
             iconName = "medication",
         ))
     }
