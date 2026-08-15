@@ -34,11 +34,20 @@ private fun newId() = UUID.randomUUID().toString()
 // Patients
 // ─────────────────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 private data class PatientRow(
     val id: String,
     val name: String = "",
     val age: Int = 0,
+    // @EncodeDefault(ALWAYS) on gender/isArchived — same encodeDefaults=false
+    // gap that already caused the missing `tag`/`recurring_days` bugs
+    // (see MedicationRow): a value that happens to match the Kotlin default
+    // gets silently dropped from the update payload instead of being sent,
+    // so e.g. editing a Male patient's Room No without touching Gender is
+    // harmless, but explicitly changing Gender back to Male, or unarchiving
+    // straight through a general update, would silently no-op.
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val gender: String = "MALE",
     @SerialName("room_no") val roomNo: String = "",
     @SerialName("medical_history") val medicalHistory: String = "",
@@ -47,7 +56,9 @@ private data class PatientRow(
     @SerialName("emergency_contact") val emergencyContact: String = "",
     @SerialName("emergency_phone") val emergencyPhone: String = "",
     @SerialName("admission_date") val admissionDate: String = LocalDate.now().toString(),
-    @SerialName("is_archived") val isArchived: Boolean = false,
+    @SerialName("is_archived")
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val isArchived: Boolean = false,
     @SerialName("primary_diagnosis") val primaryDiagnosis: String = "",
 )
 

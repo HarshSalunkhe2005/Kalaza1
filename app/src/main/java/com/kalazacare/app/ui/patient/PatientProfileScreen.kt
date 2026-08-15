@@ -651,9 +651,11 @@ private fun MarTabContent(
     administerTargetId?.let { id ->
         QrScanDialog(
             title = "Confirm Medication Given",
-            message = "Scan the medicine's QR code to confirm the dose was given to the patient.",
+            message = "Scan the patient's bedside QR code to confirm the dose was given.",
             onConfirm = { scannedCode ->
-                marVm.markAdministered(id, scannedCode)
+                marVm.markAdministered(id, scannedCode) { error ->
+                    if (error != null) Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                }
                 administerTargetId = null
             },
             onDismiss = { administerTargetId = null }

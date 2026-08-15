@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.messaging.FirebaseMessaging
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
+import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.util.AppErrors
 import com.kalazacare.app.util.SessionManager
 import com.kalazacare.app.util.subscribeToTableChanges
@@ -32,6 +33,9 @@ import java.time.LocalDateTime
 // leave it blank for a background refresh where a silent failure is fine to
 // just log.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Case/whitespace-insensitive match for the name half of a printed "<name>|<TAG>" QR payload. */
+private fun normalizeName(s: String) = s.trim().lowercase().replace(Regex("\\s+"), " ")
 
 private fun ViewModel.safeLaunch(
     description: String = "",
@@ -421,11 +425,29 @@ class MarViewModel(
         safeLaunch { _medications.value = repo.getMedicationsForPatient(patientId, date) }
     }
 
-    fun markAdministered(id: String, scannedCode: String) {
+    // The Scan tab (batch QR) rejects a scan that doesn't name the right patient
+    // + dose tag — this per-dose "Mark Given" on a patient's own Med tab used to
+    // skip that check entirely and record whatever was scanned as-is (a leftover
+    // from the original photo-evidence design, where the scan was only ever meant
+    // as proof someone scanned *something*, not an identity check). Same QR
+    // labels, same "confirm dose given" action — it needs the same validation, or
+    // scanning a different patient's bedside label here silently marks the wrong
+    // patient's dose as given.
+    fun markAdministered(id: String, scannedCode: String, onResult: (error: String?) -> Unit = {}) {
         safeLaunch("mark this dose as given") {
+            val entry = _medications.value.firstOrNull { it.id == id }
+            if (entry == null) { onResult("Couldn't find that dose — try refreshing and scanning again."); return@safeLaunch }
+            val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
+            val parts = scannedCode.split("|", limit = 2)
+            val nameMatches = parts.getOrNull(0)?.let { normalizeName(it) == normalizeName(patientName) } == true
+            val tagMatches = parts.getOrNull(1)?.trim()?.uppercase() == entry.tag.name
+            if (parts.size != 2 || !nameMatches || !tagMatches) {
+                onResult("Wrong QR — that code doesn't match $patientName's ${entry.tag.label()} dose.")
+                return@safeLaunch
+            }
             repo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode)
-            val patientId = _medications.value.firstOrNull { it.id == id }?.patientId
-            if (patientId != null) load(patientId, _selectedDate.value)
+            load(entry.patientId, _selectedDate.value)
+            onResult(null)
         }
     }
 
@@ -533,7 +555,7 @@ class ScanViewModel(
             _error.value = "Wrong QR — unrecognized time-of-day tag"
             return
         }
-        val targetName = normalize(rawName)
+        val targetName = normalizeName(rawName)
         if (targetName.isEmpty()) {
             _error.value = "Wrong QR — no patient name on this code"
             return
@@ -541,7 +563,7 @@ class ScanViewModel(
         safeLaunch {
             _loading.value = true
             _error.value = null
-            val patient = patientRepo.getAllPatients().firstOrNull { normalize(it.name) == targetName }
+            val patient = patientRepo.getAllPatients().firstOrNull { normalizeName(it.name) == targetName }
             if (patient == null) {
                 _error.value = "Wrong QR — no patient named \"$rawName\" found"
                 _loading.value = false
@@ -578,8 +600,6 @@ class ScanViewModel(
         _meds.value = emptyList()
         _error.value = null
     }
-
-    private fun normalize(s: String) = s.trim().lowercase().replace(Regex("\\s+"), " ")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
