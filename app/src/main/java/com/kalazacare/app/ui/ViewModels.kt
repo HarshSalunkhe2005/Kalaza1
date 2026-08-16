@@ -1352,7 +1352,7 @@ class ConfigViewModel(
     }
     fun revokeStaff(id: String) { safeLaunch { staffRepo.revokeStaff(id); refreshStaff() } }
     fun unrevokeStaff(id: String) { safeLaunch { staffRepo.unrevokeStaff(id); refreshStaff() } }
-    fun deleteStaff(id: String) { safeLaunch { staffRepo.deleteStaff(id); refreshStaff() } }
+    fun deleteStaff(id: String) { safeLaunch("delete this staff member") { staffRepo.deleteStaff(id); refreshStaff() } }
     /** Super Admin only, for any staff member's account (including their own) — see
      * StaffRepository.resetPassword for why this needs an Edge Function under the hood. */
     fun resetPassword(staffId: String, newPassword: String, onResult: (Boolean, String) -> Unit) {

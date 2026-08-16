@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -27,6 +29,12 @@ import com.kalazacare.app.ui.patient.PatientProfileScreen
 import com.kalazacare.app.ui.summary.SummaryScreen
 import com.kalazacare.app.ui.todo.TodoListScreen
 import com.kalazacare.app.util.SessionManager
+import kotlinx.coroutines.delay
+
+/** Same 15 minutes for every role — no per-role variance. */
+private const val AUTO_LOGOUT_TIMEOUT_MS = 15 * 60 * 1000L
+/** How often the idle check runs; doesn't need to be finer than this. */
+private const val AUTO_LOGOUT_POLL_MS = 15_000L
 
 object Routes {
     const val LOGIN           = "login"
@@ -128,7 +136,35 @@ fun KalazaNavHost(
     )
     val showBottomNav = currentRoute in bottomNavRoutes
 
+    // ── Auto-logout after 15 min idle, same for every role ──────────────────
+    // A session persisted on-device indefinitely otherwise; no timeout, no
+    // re-auth prompt — see the security backlog. lastInteractionAt is bumped
+    // by any pointer event anywhere in the app (Initial pass, never consumed,
+    // so it never interferes with normal touch/scroll/click handling) and
+    // checked on a plain poll rather than per-event, since a 15-second
+    // granularity is more than enough for a 15-minute timeout.
+    var lastInteractionAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(AUTO_LOGOUT_POLL_MS)
+            if (SessionManager.isLoggedIn() &&
+                System.currentTimeMillis() - lastInteractionAt >= AUTO_LOGOUT_TIMEOUT_MS
+            ) {
+                onLogout()
+                lastInteractionAt = System.currentTimeMillis()
+            }
+        }
+    }
+
     Scaffold(
+        modifier = Modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    awaitPointerEvent(PointerEventPass.Initial)
+                    lastInteractionAt = System.currentTimeMillis()
+                }
+            }
+        },
         bottomBar = {
             if (showBottomNav) {
                 KalazaBottomNavBar(navController = navController, currentRoute = currentRoute)

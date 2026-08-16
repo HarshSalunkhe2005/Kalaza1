@@ -175,12 +175,21 @@ class SupabaseStaffRepository(private val client: SupabaseClient) : StaffReposit
     }
 
     override suspend fun deleteStaff(id: String) {
-        // Removes the staff profile. The linked Auth account can't be deleted from
-        // here — the client SDK can only act on the currently-signed-in user, not
-        // an arbitrary one; that needs the Auth Admin API (service_role key). It's
-        // left orphaned but harmless: with no staff row, login() above can never
-        // resolve it back to a Staff, so the account can't sign in again.
-        client.postgrest.from(STAFF_TABLE).delete { filter { eq("id", id) } }
+        // Goes through the admin-delete-staff Edge Function so the linked Supabase
+        // Auth account gets cleaned up too, not just this table row — the client
+        // SDK alone can only ever act on the currently-signed-in user, not an
+        // arbitrary other one, which is what left every past deletion's Auth
+        // account permanently orphaned (see the Edge Function's own doc comment).
+        val response = client.functions.invoke(
+            function = "admin-delete-staff",
+            body = buildJsonObject { put("targetStaffId", id) },
+        )
+        if (!response.status.isSuccess()) {
+            val message = runCatching {
+                Json.parseToJsonElement(response.bodyAsText()).jsonObject["error"]?.jsonPrimitive?.content
+            }.getOrNull()
+            throw Exception(message ?: "Could not delete staff member (${response.status.value})")
+        }
     }
 
     override suspend fun updateFcmToken(staffId: String, token: String) {
