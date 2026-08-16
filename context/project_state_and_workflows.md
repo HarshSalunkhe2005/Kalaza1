@@ -96,8 +96,7 @@ Kalaza Care is an Android application designed for a clinic/hospital environment
 
 ### 14. Wi-Fi-Scoped Login Gate
 - Login is blocked unless the device's connected Wi-Fi network is on an allow-list, matched by the network's **gateway/router IP** (`WifiChecker.currentWifiGatewayIp`, via `ConnectivityManager`/`LinkProperties`), not by SSID — SSID reading proved unreliable across recent Android versions/OEMs (kept coming back redacted despite every documented permission being granted). `ALLOWED_GATEWAY_IPS` in `WifiChecker.kt` holds the facility's known router IPs.
-- A visible "Skip Wi-Fi check (testing)" switch exists on the login screen's blocking dialog, intentionally left in for now — **known, accepted gap**: any staff member can currently bypass the network gate with it. Remove or otherwise lock this down before final handover (see Security Hardening Backlog below).
-- Deferred (explicitly, not started): a way for staff/Super Admin to authenticate off-network during hospital visits — leaning toward Super-Admin-issued temporary access codes as the approach, but **intentionally not built yet** — scheduled for a later pass.
+- **Resolved**: the old "Skip Wi-Fi check (testing)" switch (any staff account could flip it with zero verification) is gone. The Wrong-Wi-Fi dialog now has a collapsed-by-default "Super Admin? Bypass with your password" link — expanding it re-validates real credentials via `authRepo.login()` and checks the resulting role is `SUPER_ADMIN` before signing them straight in; any other role's otherwise-valid credentials are rejected and immediately signed back out (`LoginViewModel.attemptSuperAdminBypass`). The dialog's raw debug dump (SDK version, manufacturer, permission booleans, gateway IPs) was also removed from the UI entirely — it was being shown unconditionally to every staff member.
 
 ### 15. Super Admin Landing Screen: "Today" Overview
 - Super Admin's post-login landing screen (`SuperAdminOverviewScreen.kt`) was first built as a tabbed Today/Weekly-Report/Utilities/Patient-Details view, then simplified down to a single, denser "Today" view per product direction — those other three tabs were removed outright, not just hidden. Current screen: stat cards, a "Needs Your Attention" section listing pending Approval/Allotment requests in full (not just a count), and a Daily Breakdown (By Category incl. Doctor Visits / By Patient toggle).
@@ -265,7 +264,7 @@ All `USER-DEFINED` columns above are real Postgres enum types (`gender_type`, `u
 - **GitHub PAT pasted in chat during this project's development** needs revoking once active development against this repo is done.
 - **Staff deletion doesn't clean up the Supabase Auth account** — see section 24. Deferred; needs a service-role-key Edge Function to do it properly instead of the current manual SQL workaround.
 - **Excel/Summary-sheet format changes** — requested, parked; no format spec given yet.
-- **Off-network (no-Wi-Fi) staff/Super-Admin login during hospital visits** — leaning toward Super-Admin-issued temporary access codes; not started.
+- **Resolved for Super Admin**: off-network login now works via the password-gated bypass in the Wi-Fi dialog (section 14). Staff/Supervisor still have no off-network path — the original "Super-Admin-issued temporary access codes" idea for them is still not started.
 
 ---
 

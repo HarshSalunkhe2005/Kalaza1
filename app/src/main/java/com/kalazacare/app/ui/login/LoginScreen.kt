@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.R
+import com.kalazacare.app.ui.BypassState
 import com.kalazacare.app.ui.LoginState
 import com.kalazacare.app.ui.LoginViewModel
 import com.kalazacare.app.ui.components.KalazaTextField
@@ -36,37 +37,79 @@ import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.ALLOWED_GATEWAY_IPS
 import com.kalazacare.app.util.WIFI_GATE_ENABLED
 import com.kalazacare.app.util.currentWifiGatewayIp
-import com.kalazacare.app.util.wifiDebugDump
 import kotlinx.coroutines.delay
 
 private enum class WifiGateState { CHECKING, ALLOWED, WRONG_NETWORK }
 
 /**
- * Testing-only bypass switch. Placed inside each blocking dialog's own content (not just
- * floating behind it) because a real AlertDialog is a separate modal window -- nothing behind
- * it, including a switch floating elsewhere in the same Box, can receive touches.
+ * Collapsed by default (a single text link) so the dialog reads cleanly for the
+ * overwhelming majority of staff who'll never need it. Expanding it reveals its own
+ * Name/Password fields rather than reusing the ones on the login form behind it —
+ * this dialog is a separate modal window, so those fields can't be reached anyway
+ * (see the old TestingSkipSwitchRow this replaced for the same note). Replaces the
+ * previous "Skip Wi-Fi check (testing)" switch, which any staff account could flip
+ * with zero verification — this re-checks real credentials and the Super Admin role
+ * before letting anyone through.
  */
 @Composable
-private fun TestingSkipSwitchRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
-        Text(
-            text = "Skip Wi-Fi check (testing)",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun SuperAdminBypassSection(
+    bypassState: BypassState,
+    onAttempt: (name: String, password: String) -> Unit,
+    onReset: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    if (!expanded) {
+        TextButton(
+            onClick = { expanded = true },
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            Text("Super Admin? Bypass with your password", style = MaterialTheme.typography.labelMedium)
+        }
+        return
+    }
+
+    Column(modifier = Modifier.padding(top = 8.dp).fillMaxWidth()) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(modifier = Modifier.width(8.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = KalazaRed,
-                checkedBorderColor = KalazaRed,
-                uncheckedThumbColor = KalazaRed,
-                uncheckedTrackColor = MaterialTheme.colorScheme.surface,
-                uncheckedBorderColor = KalazaRed,
-            ),
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
         )
+        if (bypassState is BypassState.Error) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(bypassState.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = { expanded = false; name = ""; password = ""; onReset() }) { Text("Cancel") }
+            Spacer(modifier = Modifier.width(4.dp))
+            Button(
+                onClick = { onAttempt(name, password) },
+                enabled = bypassState != BypassState.Loading,
+                colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
+            ) {
+                if (bypassState == BypassState.Loading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Bypass")
+                }
+            }
+        }
     }
 }
 
@@ -76,6 +119,7 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
     val loginState by viewModel.loginState.collectAsState()
+    val bypassState by viewModel.bypassState.collectAsState()
     var name by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -83,10 +127,10 @@ fun LoginScreen(
     val context = LocalContext.current
     var gateState by remember { mutableStateOf(if (WIFI_GATE_ENABLED) WifiGateState.CHECKING else WifiGateState.ALLOWED) }
     var detectedGatewayIp by remember { mutableStateOf<String?>(null) }
-    // On-screen override for quick testing -- tap the switch at the bottom of the screen to skip
-    // the whole Wi-Fi gate without touching code. Resets to off every fresh app launch.
-    var skipWifiCheckForTesting by remember { mutableStateOf(false) }
-    val effectiveGateState = if (skipWifiCheckForTesting) WifiGateState.ALLOWED else gateState
+    // A successful Super Admin bypass (see SuperAdminBypassSection) signs the user
+    // straight in via loginState becoming Success, so the Wi-Fi gate itself never
+    // needs to flip to ALLOWED for that path — this is just the gate's own state.
+    val effectiveGateState = gateState
 
     fun checkWifiNow() {
         detectedGatewayIp = currentWifiGatewayIp(context)
@@ -234,17 +278,11 @@ fun LoginScreen(
                     text = {
                         Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                             Text("Please connect to the facility's Wi-Fi network to continue.")
-                            // Raw SDK/manufacturer/permission/gateway-IP dump was shown to every
-                            // staff member unconditionally — meaningless (and slightly leaky)
-                            // for actual end users. Debug builds still get it for troubleshooting.
-                            if (com.kalazacare.app.BuildConfig.DEBUG) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Debug info:\n" + wifiDebugDump(context),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            TestingSkipSwitchRow(skipWifiCheckForTesting) { skipWifiCheckForTesting = it }
+                            SuperAdminBypassSection(
+                                bypassState = bypassState,
+                                onAttempt = { n, p -> viewModel.attemptSuperAdminBypass(n, p) },
+                                onReset = { viewModel.resetBypassState() },
+                            )
                         }
                     },
                     confirmButton = {

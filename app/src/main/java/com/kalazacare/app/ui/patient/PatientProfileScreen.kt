@@ -101,7 +101,12 @@ fun PatientProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit Patient",
-                            tint = KalazaRed
+                            // Was tinted KalazaRed — identical to the top bar's own
+                            // background color, so the icon was fully invisible even
+                            // though it was there and tappable the whole time. Every
+                            // other icon in this bar (edit's own sibling MoreVert
+                            // included) uses White; this one just never matched.
+                            tint = White
                         )
                     }
                     if (SessionManager.isAdmin() && p != null) {

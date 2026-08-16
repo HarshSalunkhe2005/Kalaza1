@@ -91,6 +91,40 @@ class LoginViewModel(
         }
     }
     fun resetState() { _loginState.value = LoginState.Idle }
+
+    private val _bypassState = MutableStateFlow<BypassState>(BypassState.Idle)
+    val bypassState: StateFlow<BypassState> = _bypassState.asStateFlow()
+
+    /** Off-network escape hatch for a Super Admin only, replacing the old free-for-anyone
+     * "Skip Wi-Fi check (testing)" switch. Re-validates real credentials (not a UI toggle) —
+     * any other role's otherwise-valid credentials are rejected and signed back out
+     * immediately, since authRepo.login() already establishes a session before the role
+     * can be checked. On success this reuses loginState/LoginState.Success so the screen's
+     * existing "Success -> onLoginSuccess()" wiring signs them straight in. */
+    fun attemptSuperAdminBypass(name: String, password: String) {
+        if (name.isBlank() || password.isBlank()) {
+            _bypassState.value = BypassState.Error("Enter your name and password")
+            return
+        }
+        _bypassState.value = BypassState.Loading
+        safeLaunch {
+            val staff = authRepo.login(name, password)
+            when {
+                staff == null -> _bypassState.value = BypassState.Error("Invalid credentials")
+                staff.role != UserRole.SUPER_ADMIN -> {
+                    authRepo.logout()
+                    _bypassState.value = BypassState.Error("Only a Super Admin account can bypass the Wi-Fi check")
+                }
+                else -> {
+                    SessionManager.setCurrentStaff(staff)
+                    _bypassState.value = BypassState.Idle
+                    _loginState.value = LoginState.Success(staff)
+                    registerPushToken(staff.id)
+                }
+            }
+        }
+    }
+    fun resetBypassState() { _bypassState.value = BypassState.Idle }
 }
 
 sealed class LoginState {
@@ -98,6 +132,12 @@ sealed class LoginState {
     object Loading : LoginState()
     data class Success(val staff: Staff) : LoginState()
     data class Error(val message: String) : LoginState()
+}
+
+sealed class BypassState {
+    object Idle : BypassState()
+    object Loading : BypassState()
+    data class Error(val message: String) : BypassState()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
