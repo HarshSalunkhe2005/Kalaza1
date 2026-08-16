@@ -34,11 +34,13 @@ fun StaffEditor(
     onAddStaff: (name: String, email: String, phone: String, role: UserRole, password: String, onResult: (Boolean, String) -> Unit) -> Unit,
     onRevokeStaff: (String) -> Unit,
     onUnrevokeStaff: (String) -> Unit,
-    onDeleteStaff: (String) -> Unit
+    onDeleteStaff: (String) -> Unit,
+    onResetPassword: (staffId: String, newPassword: String, onResult: (Boolean, String) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     val currentStaffId = com.kalazacare.app.util.SessionManager.getCurrentStaffId()
     var showAddDialog by remember { mutableStateOf(false) }
+    var passwordResetTarget by remember { mutableStateOf<Staff?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -89,23 +91,30 @@ fun StaffEditor(
 
                         // ── Footer: actions, laid out on their own row so they
                         // never fight the header for space. ──
-                        if (staff.isActive) {
-                            if (staff.id != currentStaffId) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                    TextButton(onClick = { onRevokeStaff(staff.id) }) {
-                                        Text("Revoke", color = MaterialTheme.colorScheme.error)
-                                    }
-                                }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            // Every card gets this, including the Super Admin's own —
+                            // it's the same "set a password" action either way.
+                            TextButton(onClick = { passwordResetTarget = staff }) {
+                                Text("Change Password", color = KalazaRed)
                             }
-                        } else {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = { onUnrevokeStaff(staff.id) }) {
-                                    Text("Activate", color = KalazaRed)
-                                }
-                                TextButton(onClick = { onDeleteStaff(staff.id) }) {
-                                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                            Row {
+                                if (staff.isActive) {
+                                    if (staff.id != currentStaffId) {
+                                        TextButton(onClick = { onRevokeStaff(staff.id) }) {
+                                            Text("Revoke", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                } else {
+                                    TextButton(onClick = { onUnrevokeStaff(staff.id) }) {
+                                        Text("Activate", color = KalazaRed)
+                                    }
+                                    TextButton(onClick = { onDeleteStaff(staff.id) }) {
+                                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                                    }
                                 }
                             }
                         }
@@ -133,6 +142,19 @@ fun StaffEditor(
                     onAddStaff(name, email, phone, role, password) { success, message ->
                         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                         if (success) showAddDialog = false
+                    }
+                }
+            )
+        }
+
+        passwordResetTarget?.let { target ->
+            ResetPasswordDialog(
+                staffName = target.name,
+                onDismiss = { passwordResetTarget = null },
+                onSubmit = { newPassword ->
+                    onResetPassword(target.id, newPassword) { success, message ->
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        if (success) passwordResetTarget = null
                     }
                 }
             )
@@ -258,6 +280,74 @@ private fun AddStaffDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
+        }
+    )
+}
+
+/** Super-Admin-only, for any staff member's account including their own. No "current
+ * password" field — the Super Admin is already authenticated and authorized for this
+ * whole screen; re-proving identity here would just be friction, not real security. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ResetPasswordDialog(
+    staffName: String,
+    onDismiss: () -> Unit,
+    onSubmit: (newPassword: String) -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    val isPasswordValid = password.length >= 8
+    val passwordsMatch = confirmPassword.isEmpty() || password == confirmPassword
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Change Password — $staffName") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("New Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = password.isNotEmpty() && !isPasswordValid,
+                    supportingText = { Text("At least 8 characters") },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            )
+                        }
+                    }
+                )
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirm Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = !passwordsMatch,
+                    supportingText = if (!passwordsMatch) { { Text("Passwords don't match") } } else null,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSubmit(password) },
+                colors = ButtonDefaults.buttonColors(containerColor = KalazaRed),
+                enabled = isPasswordValid && password == confirmPassword,
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }

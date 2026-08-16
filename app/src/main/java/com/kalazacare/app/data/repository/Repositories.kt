@@ -155,4 +155,13 @@ interface StaffRepository {
     suspend fun deleteStaff(id: String)
     /** Called after login and whenever Firebase Messaging rotates this device's token. */
     suspend fun updateFcmToken(staffId: String, token: String)
+    /**
+     * Super-Admin-only: sets [staffId]'s password (their own account included).
+     * Goes through the `admin-reset-password` Edge Function — the client SDK can
+     * only ever change the *currently signed-in* user's own password, so setting
+     * someone else's requires the service-role Auth Admin API, which only an
+     * Edge Function can hold. Throws with a user-facing message on failure
+     * (wrong role, weak password, target not found, etc.).
+     */
+    suspend fun resetPassword(staffId: String, newPassword: String)
 }

@@ -6,14 +6,21 @@ import com.kalazacare.app.data.remote.SupabaseClients
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.util.UUID
@@ -178,5 +185,21 @@ class SupabaseStaffRepository(private val client: SupabaseClient) : StaffReposit
 
     override suspend fun updateFcmToken(staffId: String, token: String) {
         client.postgrest.from(STAFF_TABLE).update(mapOf("fcm_token" to token)) { filter { eq("id", staffId) } }
+    }
+
+    override suspend fun resetPassword(staffId: String, newPassword: String) {
+        val response: HttpResponse = client.functions.invoke(
+            function = "admin-reset-password",
+            body = buildJsonObject {
+                put("targetStaffId", staffId)
+                put("newPassword", newPassword)
+            },
+        )
+        if (!response.status.isSuccess()) {
+            val message = runCatching {
+                Json.parseToJsonElement(response.bodyAsText()).jsonObject["error"]?.jsonPrimitive?.content
+            }.getOrNull()
+            throw Exception(message ?: "Password reset failed (${response.status.value})")
+        }
     }
 }

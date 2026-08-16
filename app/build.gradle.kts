@@ -93,11 +93,12 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.kotlinx.coroutines.play.services)
 
-    // Supabase — Auth, Postgrest (data), Realtime (live sync)
+    // Supabase — Auth, Postgrest (data), Realtime (live sync), Functions (admin password reset)
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.auth)
     implementation(libs.supabase.realtime)
+    implementation(libs.supabase.functions)
     implementation(libs.ktor.client.android)
     implementation(libs.kotlinx.serialization.json)
 

@@ -74,7 +74,10 @@ fun ConfigScreen(
                     },
                     onRevokeStaff = { viewModel.revokeStaff(it) },
                     onUnrevokeStaff = { viewModel.unrevokeStaff(it) },
-                    onDeleteStaff = { viewModel.deleteStaff(it) }
+                    onDeleteStaff = { viewModel.deleteStaff(it) },
+                    onResetPassword = { staffId, newPassword, onResult ->
+                        viewModel.resetPassword(staffId, newPassword, onResult)
+                    }
                 )
                 1 -> UtilItemsEditor(
                     items = utilItems,

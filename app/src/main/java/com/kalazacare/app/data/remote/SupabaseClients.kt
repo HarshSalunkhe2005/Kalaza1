@@ -3,6 +3,7 @@ package com.kalazacare.app.data.remote
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 
@@ -19,6 +20,11 @@ object SupabaseClients {
             install(Auth)
             install(Postgrest)
             install(Realtime)
+            // Functions — only used to call admin-reset-password (Super Admin
+            // setting a staff member's, or their own, password). Everything else
+            // stays plain Postgrest/RLS; this is the one action that genuinely
+            // needs the service-role key, which only an Edge Function can hold.
+            install(Functions)
         }
     }
 
