@@ -33,7 +33,6 @@ import com.kalazacare.app.util.SessionManager
 @Composable
 fun MarTable(
     medications: List<MedicationEntry>,
-    onMarkAdministered: (String) -> Unit,
     onRequestAllotment: (MedicationEntry) -> Unit = {},
     onEditMedication: ((MedicationEntry) -> Unit)? = null,   // CHANGE 5
     onDeleteMedication: ((MedicationEntry) -> Unit)? = null,
@@ -131,13 +130,6 @@ fun MarTable(
 
                     Column(horizontalAlignment = Alignment.End) {
                         MedStatusBadge(status = entry.status)
-                        if (entry.status == MedStatus.PENDING || entry.status == MedStatus.OVERDUE) {
-                            Spacer(Modifier.height(8.dp))
-                            Button(
-                                onClick = { onMarkAdministered(entry.id) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) { Text("Mark Given") }
-                        }
                     }
                 }
             }

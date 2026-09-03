@@ -467,32 +467,6 @@ class MarViewModel(
         safeLaunch { _medications.value = repo.getMedicationsForPatient(patientId, date) }
     }
 
-    // The Scan tab (batch QR) rejects a scan that doesn't name the right patient
-    // + dose tag — this per-dose "Mark Given" on a patient's own Med tab used to
-    // skip that check entirely and record whatever was scanned as-is (a leftover
-    // from the original photo-evidence design, where the scan was only ever meant
-    // as proof someone scanned *something*, not an identity check). Same QR
-    // labels, same "confirm dose given" action — it needs the same validation, or
-    // scanning a different patient's bedside label here silently marks the wrong
-    // patient's dose as given.
-    fun markAdministered(id: String, scannedCode: String, onResult: (error: String?) -> Unit = {}) {
-        safeLaunch("mark this dose as given") {
-            val entry = _medications.value.firstOrNull { it.id == id }
-            if (entry == null) { onResult("Couldn't find that dose — try refreshing and scanning again."); return@safeLaunch }
-            val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
-            val parts = scannedCode.split("|", limit = 2)
-            val nameMatches = parts.getOrNull(0)?.let { normalizeName(it) == normalizeName(patientName) } == true
-            val tagMatches = parts.getOrNull(1)?.trim()?.uppercase() == entry.tag.name
-            if (parts.size != 2 || !nameMatches || !tagMatches) {
-                onResult("Wrong QR — that code doesn't match $patientName's ${entry.tag.label()} dose.")
-                return@safeLaunch
-            }
-            repo.markAdministered(id, SessionManager.getCurrentStaffName(), scannedCode)
-            load(entry.patientId, _selectedDate.value)
-            onResult(null)
-        }
-    }
-
     // Tapping the button gave zero feedback either way (nothing on screen
     // changes — the entry has no "request already pending" flag to grey the
     // button out with), so a real request looked identical to a silently

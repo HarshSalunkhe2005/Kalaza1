@@ -28,7 +28,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kalazacare.app.ui.*
 import com.kalazacare.app.ui.components.ConfirmDialog
 import com.kalazacare.app.ui.components.KalazaTopBar
-import com.kalazacare.app.ui.components.QrScanDialog
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.components.matches
 import com.kalazacare.app.ui.mar.MarTable
@@ -609,13 +608,11 @@ private fun MarTabContent(
     marVm: MarViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
-    var administerTargetId by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         MarTable(
             medications = medications,
-            onMarkAdministered = { id -> administerTargetId = id },
             onRequestAllotment = { entry ->
                 marVm.requestAllotment(entry) { message ->
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -650,20 +647,6 @@ private fun MarTabContent(
                 }
                 showAddDialog = false
             }
-        )
-    }
-
-    administerTargetId?.let { id ->
-        QrScanDialog(
-            title = "Confirm Medication Given",
-            message = "Scan the patient's bedside QR code to confirm the dose was given.",
-            onConfirm = { scannedCode ->
-                marVm.markAdministered(id, scannedCode) { error ->
-                    if (error != null) Toast.makeText(context, error, Toast.LENGTH_LONG).show()
-                }
-                administerTargetId = null
-            },
-            onDismiss = { administerTargetId = null }
         )
     }
 }
