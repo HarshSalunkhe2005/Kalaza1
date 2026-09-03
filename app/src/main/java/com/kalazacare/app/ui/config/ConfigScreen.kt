@@ -9,6 +9,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.ui.ConfigViewModel
 import com.kalazacare.app.ui.components.KalazaTopBar
+import com.kalazacare.app.ui.sync.SyncConflictsTab
 import com.kalazacare.app.ui.theme.KalazaRed
 
 @Composable
@@ -19,9 +20,10 @@ fun ConfigScreen(
 ) {
     val staffList by viewModel.staffList.collectAsState()
     val utilItems by viewModel.utilItems.collectAsState()
+    val syncConflicts by viewModel.syncConflicts.collectAsState()
 
     var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabs = listOf("Staff Management", "Utility Items")
+    val tabs = listOf("Staff Management", "Utility Items", "Sync Conflicts" + if (syncConflicts.isNotEmpty()) " (${syncConflicts.size})" else "")
 
     Scaffold(
         topBar = {
@@ -84,6 +86,10 @@ fun ConfigScreen(
                     onAddItem = { viewModel.addUtilityItem(it) },
                     onUpdateItem = { viewModel.updateUtilityItem(it) },
                     onDeleteItem = { viewModel.deleteUtilityItem(it) }
+                )
+                2 -> SyncConflictsTab(
+                    conflicts = syncConflicts,
+                    onDismiss = { viewModel.dismissConflict(it) }
                 )
             }
         }

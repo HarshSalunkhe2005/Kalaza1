@@ -1,13 +1,23 @@
 package com.kalazacare.app.ui.navigation
 
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -100,6 +110,7 @@ fun KalazaNavHost(
             staffRepo       = app.staffRepository,
             allotmentRequestRepo = app.allotmentRequestRepository,
             notificationRepo = app.notificationRepository,
+            syncManager = app.syncManager,
         )
     }
 
@@ -136,6 +147,16 @@ fun KalazaNavHost(
     )
     val showBottomNav = currentRoute in bottomNavRoutes
 
+    // ── Offline banner + "saved offline" snackbar ────────────────────────────
+    val isOnline by app.connectivityObserver.isOnline.collectAsState()
+    val pendingSyncCount by app.syncManager.pendingCount.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        app.syncManager.offlineSavedMessages.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     // ── Auto-logout after 15 min idle, same for every role ──────────────────
     // A session persisted on-device indefinitely otherwise; no timeout, no
     // re-auth prompt — see the security backlog. lastInteractionAt is bumped
@@ -169,13 +190,28 @@ fun KalazaNavHost(
             if (showBottomNav) {
                 KalazaBottomNavBar(navController = navController, currentRoute = currentRoute)
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
+
+        Column(modifier = Modifier.padding(innerPadding)) {
+            if (currentRoute != Routes.LOGIN && (!isOnline || pendingSyncCount > 0)) {
+                val (bg, label) = when {
+                    !isOnline -> Color(0xFF7A1F1F) to "Offline — showing cached data"
+                    else -> Color(0xFF8A6D1F) to "Syncing $pendingSyncCount pending change${if (pendingSyncCount == 1) "" else "s"}…"
+                }
+                Box(
+                    modifier = Modifier.fillMaxWidth().background(bg).padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center)
+                }
+            }
 
         NavHost(
             navController   = navController,
             startDestination = Routes.LOGIN,
-            modifier         = Modifier.padding(innerPadding),
+            modifier         = Modifier.weight(1f),
         ) {
 
             // ── Login ──────────────────────────────────────────────────────────
@@ -372,6 +408,7 @@ fun KalazaNavHost(
                     }
                 )
             }
+        }
         }
     }
 }

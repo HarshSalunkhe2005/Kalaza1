@@ -36,7 +36,7 @@ private fun newId() = UUID.randomUUID().toString()
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
-private data class PatientRow(
+internal data class PatientRow(
     val id: String,
     val name: String = "",
     val age: Int = 0,
@@ -62,14 +62,14 @@ private data class PatientRow(
     @SerialName("primary_diagnosis") val primaryDiagnosis: String = "",
 )
 
-private fun PatientRow.toDomain() = Patient(
+internal fun PatientRow.toDomain() = Patient(
     id = id, name = name, age = age,
     gender = runCatching { Gender.valueOf(gender) }.getOrDefault(Gender.MALE),
     roomNo = roomNo, medicalHistory = medicalHistory, currentIssues = currentIssues, allergies = allergies,
     emergencyContact = emergencyContact, emergencyPhone = emergencyPhone,
     admissionDate = parseDate(admissionDate), isArchived = isArchived, primaryDiagnosis = primaryDiagnosis,
 )
-private fun Patient.toRow() = PatientRow(
+internal fun Patient.toRow() = PatientRow(
     id = id, name = name, age = age, gender = gender.name, roomNo = roomNo, medicalHistory = medicalHistory,
     currentIssues = currentIssues, allergies = allergies, emergencyContact = emergencyContact,
     emergencyPhone = emergencyPhone, admissionDate = admissionDate.toString(), isArchived = isArchived,
@@ -110,7 +110,7 @@ class SupabasePatientRepository(private val client: SupabaseClient) : PatientRep
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class VitalRow(
+internal data class VitalRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
     val date: String = LocalDate.now().toString(),
@@ -120,12 +120,12 @@ private data class VitalRow(
     @SerialName("sugar_pp") val sugarPP: String = "",
     @SerialName("signed_by") val signedBy: String = "",
 )
-private fun VitalRow.toDomain() = VitalRecord(
+internal fun VitalRow.toDomain() = VitalRecord(
     id = id, patientId = patientId, date = parseDate(date), time = parseTime(time),
     pulse = pulse, bp = bp, spo2 = spo2, temperature = temperature,
     sugarFasting = sugarFasting, sugarPP = sugarPP, signedBy = signedBy,
 )
-private fun VitalRecord.toRow() = VitalRow(
+internal fun VitalRecord.toRow() = VitalRow(
     id = id, patientId = patientId, date = date.toString(), time = time.toString(),
     pulse = pulse, bp = bp, spo2 = spo2, temperature = temperature,
     sugarFasting = sugarFasting, sugarPP = sugarPP, signedBy = signedBy,
@@ -155,7 +155,7 @@ class SupabaseVitalsRepository(private val client: SupabaseClient) : VitalsRepos
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
-private data class MedicationRow(
+internal data class MedicationRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
     @SerialName("medicine_name") val medicineName: String = "",
@@ -189,7 +189,7 @@ private data class MedicationRow(
     @SerialName("allotment_scanned_code") val allotmentScannedCode: String = "",
     @SerialName("administered_scanned_code") val administeredScannedCode: String = "",
 )
-private fun MedicationRow.toDomain(): MedicationEntry {
+internal fun MedicationRow.toDomain(): MedicationEntry {
     val entry = MedicationEntry(
         id = id, patientId = patientId, medicineName = medicineName, dose = dose, quantity = quantity,
         scheduleTime = parseTime(scheduleTime),
@@ -205,7 +205,7 @@ private fun MedicationRow.toDomain(): MedicationEntry {
     )
     return entry.withComputedStatus()
 }
-private fun MedicationEntry.toRow() = MedicationRow(
+internal fun MedicationEntry.toRow() = MedicationRow(
     id = id, patientId = patientId, medicineName = medicineName, dose = dose, quantity = quantity,
     scheduleTime = scheduleTime.toString(), tag = tag.name,
     scheduledDate = scheduledDate.toString(), isRecurring = isRecurring,
@@ -357,7 +357,7 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
 private const val EVIDENCE_LOG_TABLE = "medication_evidence_log"
 
 @Serializable
-private data class MedicationEvidenceRow(
+internal data class MedicationEvidenceRow(
     val id: String,
     @SerialName("medication_id") val medicationId: String,
     @SerialName("patient_id") val patientId: String,
@@ -368,7 +368,7 @@ private data class MedicationEvidenceRow(
     @SerialName("scanned_code") val scannedCode: String = "",
     @SerialName("occurred_at") val occurredAt: String = LocalDateTime.now().toString(),
 )
-private fun MedicationEvidenceRow.toDomain() = MedicationEvidenceEvent(
+internal fun MedicationEvidenceRow.toDomain() = MedicationEvidenceEvent(
     id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName,
     kind = kind, staffId = staffId ?: "", staffName = staffName, scannedCode = scannedCode,
     occurredAt = parseTimestamp(occurredAt),
@@ -379,7 +379,7 @@ private fun MedicationEvidenceRow.toDomain() = MedicationEvidenceEvent(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class UtilityRecordRow(
+internal data class UtilityRecordRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
     val date: String = LocalDate.now().toString(),
@@ -389,23 +389,23 @@ private data class UtilityRecordRow(
     @SerialName("issued_by_supervisor") val issuedBySupervisor: String = "",
     @SerialName("checked_by") val checkedBy: String = "",
 )
-private fun UtilityRecordRow.toDomain() = UtilityRecord(
+internal fun UtilityRecordRow.toDomain() = UtilityRecord(
     id = id, patientId = patientId, date = parseDate(date), time = parseTime(time), quantities = quantities,
     issuedToCaregiver = issuedToCaregiver, issuedBySupervisor = issuedBySupervisor, checkedBy = checkedBy,
 )
-private fun UtilityRecord.toRow() = UtilityRecordRow(
+internal fun UtilityRecord.toRow() = UtilityRecordRow(
     id = id, patientId = patientId, date = date.toString(), time = time.toString(), quantities = quantities,
     issuedToCaregiver = issuedToCaregiver, issuedBySupervisor = issuedBySupervisor, checkedBy = checkedBy,
 )
 
 @Serializable
-private data class UtilityItemRow(
+internal data class UtilityItemRow(
     val id: String, val name: String = "", val unit: String = "pcs",
     @SerialName("display_order") val displayOrder: Int = 0,
     @SerialName("is_active") val isActive: Boolean = true,
 )
-private fun UtilityItemRow.toDomain() = UtilityItem(id = id, name = name, unit = unit, displayOrder = displayOrder, isActive = isActive)
-private fun UtilityItem.toRow() = UtilityItemRow(id = id, name = name, unit = unit, displayOrder = displayOrder, isActive = isActive)
+internal fun UtilityItemRow.toDomain() = UtilityItem(id = id, name = name, unit = unit, displayOrder = displayOrder, isActive = isActive)
+internal fun UtilityItem.toRow() = UtilityItemRow(id = id, name = name, unit = unit, displayOrder = displayOrder, isActive = isActive)
 
 class SupabaseUtilityRepository(private val client: SupabaseClient) : UtilityRepository {
     private val recordsTable = "utility_records"
@@ -445,7 +445,7 @@ class SupabaseUtilityRepository(private val client: SupabaseClient) : UtilityRep
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class DoctorVisitRow(
+internal data class DoctorVisitRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
     @SerialName("doctor_name") val doctorName: String = "",
@@ -458,13 +458,13 @@ private data class DoctorVisitRow(
     @SerialName("is_confirmed") val isConfirmed: Boolean = false,
     @SerialName("is_archived") val isArchived: Boolean = false,
 )
-private fun DoctorVisitRow.toDomain() = DoctorVisit(
+internal fun DoctorVisitRow.toDomain() = DoctorVisit(
     id = id, patientId = patientId, doctorName = doctorName, specialty = specialty,
     date = parseDate(date), time = parseTime(time), notes = notes,
     nextVisitDate = parseDateOrNull(nextVisitDate), prescriptionChanges = prescriptionChanges,
     isConfirmed = isConfirmed, isArchived = isArchived,
 )
-private fun DoctorVisit.toRow() = DoctorVisitRow(
+internal fun DoctorVisit.toRow() = DoctorVisitRow(
     id = id, patientId = patientId, doctorName = doctorName, specialty = specialty,
     date = date.toString(), time = time.toString(), notes = notes,
     nextVisitDate = nextVisitDate?.toString(), prescriptionChanges = prescriptionChanges,
@@ -493,7 +493,7 @@ class SupabaseDoctorVisitRepository(private val client: SupabaseClient) : Doctor
 }
 
 @Serializable
-private data class CareNoteRow(
+internal data class CareNoteRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
     @SerialName("staff_id") val staffId: String? = null,
@@ -501,11 +501,11 @@ private data class CareNoteRow(
     val timestamp: String = LocalDateTime.now().toString(),
     val note: String = "",
 )
-private fun CareNoteRow.toDomain() = CareNote(
+internal fun CareNoteRow.toDomain() = CareNote(
     id = id, patientId = patientId, staffId = staffId ?: "", staffName = staffName,
     timestamp = parseTimestamp(timestamp), note = note,
 )
-private fun CareNote.toRow() = CareNoteRow(
+internal fun CareNote.toRow() = CareNoteRow(
     id = id, patientId = patientId, staffId = staffId.ifBlank { null }, staffName = staffName,
     timestamp = timestamp.toString(), note = note,
 )
@@ -530,7 +530,7 @@ class SupabaseCareNoteRepository(private val client: SupabaseClient) : CareNoteR
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class ApprovalRequestRow(
+internal data class ApprovalRequestRow(
     val id: String,
     @SerialName("entity_type") val entityType: String = "PATIENT",
     @SerialName("entity_id") val entityId: String = "",
@@ -549,7 +549,7 @@ private data class ApprovalRequestRow(
     @SerialName("reviewed_at") val reviewedAt: String? = null,
     @SerialName("rejection_reason") val rejectionReason: String = "",
 )
-private fun ApprovalRequestRow.toDomain() = ApprovalRequest(
+internal fun ApprovalRequestRow.toDomain() = ApprovalRequest(
     id = id, entityType = runCatching { ApprovalEntityType.valueOf(entityType) }.getOrDefault(ApprovalEntityType.PATIENT),
     entityId = entityId, action = runCatching { ApprovalAction.valueOf(action) }.getOrDefault(ApprovalAction.EDIT),
     patientId = patientId ?: "", patientName = patientName, requestedById = requestedById ?: "",
@@ -558,7 +558,7 @@ private fun ApprovalRequestRow.toDomain() = ApprovalRequest(
     reviewedById = reviewedById ?: "", reviewedByName = reviewedByName, timestamp = parseTimestamp(timestamp),
     reviewedAt = parseTimestampOrNull(reviewedAt), rejectionReason = rejectionReason,
 )
-private fun ApprovalRequest.toRow() = ApprovalRequestRow(
+internal fun ApprovalRequest.toRow() = ApprovalRequestRow(
     id = id, entityType = entityType.name, entityId = entityId, action = action.name,
     patientId = patientId.ifBlank { null }, patientName = patientName, requestedById = requestedById.ifBlank { null },
     requestedByName = requestedByName, fieldChanged = fieldChanged, oldValue = oldValue, newValue = newValue,
@@ -608,7 +608,7 @@ class SupabaseApprovalRepository(private val client: SupabaseClient) : ApprovalR
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class AllotmentRequestRow(
+internal data class AllotmentRequestRow(
     val id: String,
     @SerialName("medication_entry_id") val medicationEntryId: String,
     @SerialName("patient_id") val patientId: String,
@@ -624,7 +624,7 @@ private data class AllotmentRequestRow(
     val timestamp: String = LocalDateTime.now().toString(),
     @SerialName("fulfilled_at") val fulfilledAt: String? = null,
 )
-private fun AllotmentRequestRow.toDomain() = AllotmentRequest(
+internal fun AllotmentRequestRow.toDomain() = AllotmentRequest(
     id = id, medicationEntryId = medicationEntryId, patientId = patientId, patientName = patientName,
     medicineName = medicineName, dose = dose, scheduledTime = parseTime(scheduledTime),
     requestedById = requestedById ?: "", requestedByName = requestedByName,
@@ -632,7 +632,7 @@ private fun AllotmentRequestRow.toDomain() = AllotmentRequest(
     fulfilledById = fulfilledById ?: "", fulfilledByName = fulfilledByName,
     timestamp = parseTimestamp(timestamp), fulfilledAt = parseTimestampOrNull(fulfilledAt),
 )
-private fun AllotmentRequest.toRow() = AllotmentRequestRow(
+internal fun AllotmentRequest.toRow() = AllotmentRequestRow(
     id = id, medicationEntryId = medicationEntryId, patientId = patientId, patientName = patientName,
     medicineName = medicineName, dose = dose, scheduledTime = scheduledTime.toString(),
     requestedById = requestedById.ifBlank { null }, requestedByName = requestedByName, status = status.name,
@@ -670,7 +670,7 @@ class SupabaseAllotmentRequestRepository(private val client: SupabaseClient) : A
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class NotificationRow(
+internal data class NotificationRow(
     val id: String,
     @SerialName("recipient_staff_id") val recipientStaffId: String? = null,
     @SerialName("recipient_role") val recipientRole: String? = null,
@@ -680,13 +680,13 @@ private data class NotificationRow(
     @SerialName("is_read") val isRead: Boolean = false,
     @SerialName("target_route") val targetRoute: String = "",
 )
-private fun NotificationRow.toDomain() = AppNotification(
+internal fun NotificationRow.toDomain() = AppNotification(
     id = id, recipientStaffId = recipientStaffId ?: "",
     recipientRole = recipientRole?.let { runCatching { UserRole.valueOf(it) }.getOrNull() },
     type = runCatching { NotificationType.valueOf(type) }.getOrDefault(NotificationType.APPROVAL_REQUESTED),
     title = title, message = message, timestamp = parseTimestamp(timestamp), isRead = isRead, targetRoute = targetRoute,
 )
-private fun AppNotification.toRow() = NotificationRow(
+internal fun AppNotification.toRow() = NotificationRow(
     id = id, recipientStaffId = recipientStaffId.ifBlank { null }, recipientRole = recipientRole?.name,
     type = type.name, title = title, message = message, timestamp = timestamp.toString(),
     isRead = isRead, targetRoute = targetRoute,
@@ -726,7 +726,7 @@ class SupabaseNotificationRepository(private val client: SupabaseClient) : Notif
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Serializable
-private data class AuditLogRow(
+internal data class AuditLogRow(
     val id: String, val action: String = "",
     @SerialName("performed_by_id") val performedById: String? = null,
     @SerialName("performed_by_name") val performedByName: String = "",
@@ -735,12 +735,12 @@ private data class AuditLogRow(
     val details: String = "", val timestamp: String = LocalDateTime.now().toString(),
     @SerialName("icon_name") val iconName: String = "edit",
 )
-private fun AuditLogRow.toDomain() = AuditLogEntry(
+internal fun AuditLogRow.toDomain() = AuditLogEntry(
     id = id, action = action, performedById = performedById ?: "", performedByName = performedByName,
     targetPatientId = targetPatientId, targetPatientName = targetPatientName, details = details,
     timestamp = parseTimestamp(timestamp), iconName = iconName.ifBlank { "edit" },
 )
-private fun AuditLogEntry.toRow() = AuditLogRow(
+internal fun AuditLogEntry.toRow() = AuditLogRow(
     id = id, action = action, performedById = performedById.ifBlank { null }, performedByName = performedByName,
     targetPatientId = targetPatientId, targetPatientName = targetPatientName, details = details,
     timestamp = timestamp.toString(), iconName = iconName,

@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.messaging.FirebaseMessaging
+import com.kalazacare.app.data.local.PendingOperationEntity
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
+import com.kalazacare.app.data.sync.SyncManager
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.util.AppErrors
 import com.kalazacare.app.util.SessionManager
@@ -1326,11 +1328,16 @@ class AuditLogViewModel(private val repo: AuditRepository) : ViewModel() {
 class ConfigViewModel(
     private val staffRepo: StaffRepository,
     private val utilityRepo: UtilityRepository,
+    private val syncManager: SyncManager,
 ) : ViewModel() {
     private val _staffList = MutableStateFlow<List<Staff>>(emptyList())
     val staffList: StateFlow<List<Staff>> = _staffList.asStateFlow()
     private val _utilItems = MutableStateFlow<List<UtilityItem>>(emptyList())
     val utilItems: StateFlow<List<UtilityItem>> = _utilItems.asStateFlow()
+    /** Queued offline writes that couldn't auto-apply on sync (another device changed the same record first) — see SyncManager. */
+    val syncConflicts: StateFlow<List<PendingOperationEntity>> = syncManager.conflicts
+    /** Super Admin has manually reconciled this conflict in the affected record — drop it from the queue. */
+    fun dismissConflict(id: String) = syncManager.dismissConflict(id)
     init { load() }
     fun load() { safeLaunch { refreshStaff(); refreshItems() } }
     private suspend fun refreshStaff() { _staffList.value = staffRepo.getAllStaff() }
@@ -1483,6 +1490,7 @@ class KalazaViewModelFactory(
     private val staffRepo: StaffRepository,
     private val allotmentRequestRepo: AllotmentRequestRepository,
     private val notificationRepo: NotificationRepository,
+    private val syncManager: SyncManager,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
@@ -1498,7 +1506,7 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(CareNoteViewModel::class.java)    -> CareNoteViewModel(careNoteRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo, vitalsRepo, utilityRepo, careNoteRepo) as T
         modelClass.isAssignableFrom(AuditLogViewModel::class.java)    -> AuditLogViewModel(auditRepo) as T
-        modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo) as T
+        modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo, syncManager) as T
         modelClass.isAssignableFrom(SummaryViewModel::class.java)     -> SummaryViewModel(medRepo, vitalsRepo, approvalRepo, patientRepo, utilityRepo, doctorVisitRepo, careNoteRepo) as T
         modelClass.isAssignableFrom(NotificationViewModel::class.java)-> NotificationViewModel(notificationRepo) as T
         modelClass.isAssignableFrom(TodoListViewModel::class.java)    -> TodoListViewModel(medRepo, patientRepo) as T

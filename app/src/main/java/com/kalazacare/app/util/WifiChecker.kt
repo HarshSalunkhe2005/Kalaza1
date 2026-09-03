@@ -12,7 +12,7 @@ import androidx.core.location.LocationManagerCompat
  * the SSID-detection issue on newer Android is still being tracked down.
  * MUST be back to true before this ships to Kalaza Care.
  */
-const val WIFI_GATE_ENABLED = true
+const val WIFI_GATE_ENABLED = false
 
 /**
  * The facility Wi-Fi router(s)' gateway/local IP address (e.g. "192.168.1.1") -- the ONLY way
@@ -27,7 +27,7 @@ const val WIFI_GATE_ENABLED = true
  * connected network -> look for "Gateway" or "Router" under its IP details (may be under an
  * "Advanced" section depending on the phone). Add that value to this set.
  */
-val ALLOWED_GATEWAY_IPS = setOf("10.24.64.1", "192.168.0.1")
+val ALLOWED_GATEWAY_IPS = setOf("10.24.64.1", "192.168.0.1", "10.0.2.2")
 
 /**
  * The connected Wi-Fi network's gateway/router IP address, or null if not connected to Wi-Fi or
