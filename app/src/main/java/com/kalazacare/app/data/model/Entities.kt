@@ -46,6 +46,13 @@ enum class AllotmentRequestStatus { PENDING, FULFILLED }
  */
 enum class DoseTag { MORNING, AFTERNOON, EVENING }
 
+/**
+ * One calendar day's outcome for one [MedicationEntry], as opposed to
+ * [MedStatus] which is a live view of *today's* schedule that resets daily
+ * for a recurring dose. Backs the Med tab's History table.
+ */
+enum class AdministrationOutcome { ADMINISTERED, MISSED }
+
 // CHANGE 4: visits get an isConfirmed + isArchived flag
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Entities
@@ -135,6 +142,25 @@ data class MedicationEntry(
     val allottedAt: LocalDateTime? = null,
     val allotmentScannedCode: String = "",
     val administeredScannedCode: String = "",
+)
+
+/**
+ * One row of the per-day medication history table (Med tab → History). Denormalizes
+ * medicineName/dose/tag at write time — same reasoning as [MedicationEvidenceEvent] —
+ * so history stays readable even if the live [MedicationEntry] is later edited or deleted.
+ */
+data class MedicationHistoryEntry(
+    val id: String = "",
+    val medicationId: String = "",
+    val patientId: String = "",
+    val medicineName: String = "",
+    val dose: String = "",
+    val tag: DoseTag = DoseTag.MORNING,
+    val date: LocalDate = LocalDate.now(),
+    val status: AdministrationOutcome = AdministrationOutcome.MISSED,
+    val administeredBy: String = "",
+    val administeredAt: LocalDateTime? = null,
+    val scannedCode: String = "",
 )
 
 data class AllotmentRequest(

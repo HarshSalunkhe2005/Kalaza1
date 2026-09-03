@@ -326,6 +326,20 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
                     scannedCode = scannedCode, occurredAt = LocalDateTime.now().toString(),
                 )
             )
+            // Per-day history ledger — the watchdog Edge Function writes the MISSED
+            // counterpart at its own 5-min-after-deadline checkpoint; on conflict do
+            // nothing covers the (harmless) race where both fire for the same day.
+            client.postgrest.from(HISTORY_LOG_TABLE).upsert(
+                MedicationHistoryRow(
+                    id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
+                    dose = med.dose, tag = med.tag, date = LocalDate.now().toString(),
+                    status = "ADMINISTERED", administeredBy = staffName,
+                    administeredAt = LocalDateTime.now().toString(), scannedCode = scannedCode,
+                )
+            ) {
+                onConflict = "medication_id,date"
+                ignoreDuplicates = true
+            }
         }
     }
     override suspend fun allotMedication(id: String, staffId: String, staffName: String, scannedCode: String) {
@@ -352,9 +366,40 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
     override suspend fun getEvidenceLog(): List<MedicationEvidenceEvent> =
         client.postgrest.from(EVIDENCE_LOG_TABLE).select().decodeList<MedicationEvidenceRow>()
             .map { it.toDomain() }.sortedByDescending { it.occurredAt }
+    override suspend fun getAdministrationHistory(patientId: String): List<MedicationHistoryEntry> =
+        client.postgrest.from(HISTORY_LOG_TABLE).select { filter { eq("patient_id", patientId) } }
+            .decodeList<MedicationHistoryRow>().map { it.toDomain() }.sortedByDescending { it.date }
 }
 
 private const val EVIDENCE_LOG_TABLE = "medication_evidence_log"
+private const val HISTORY_LOG_TABLE = "medication_administration_log"
+
+@Serializable
+internal data class MedicationHistoryRow(
+    val id: String,
+    @SerialName("medication_id") val medicationId: String,
+    @SerialName("patient_id") val patientId: String,
+    @SerialName("medicine_name") val medicineName: String = "",
+    val dose: String = "",
+    val tag: String = "MORNING",
+    val date: String = LocalDate.now().toString(),
+    val status: String = "MISSED",
+    @SerialName("administered_by") val administeredBy: String = "",
+    @SerialName("administered_at") val administeredAt: String? = null,
+    @SerialName("scanned_code") val scannedCode: String = "",
+)
+internal fun MedicationHistoryRow.toDomain() = MedicationHistoryEntry(
+    id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName, dose = dose,
+    tag = runCatching { DoseTag.valueOf(tag) }.getOrDefault(DoseTag.MORNING),
+    date = parseDate(date),
+    status = runCatching { AdministrationOutcome.valueOf(status) }.getOrDefault(AdministrationOutcome.MISSED),
+    administeredBy = administeredBy, administeredAt = parseTimestampOrNull(administeredAt), scannedCode = scannedCode,
+)
+internal fun MedicationHistoryEntry.toRow() = MedicationHistoryRow(
+    id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName, dose = dose,
+    tag = tag.name, date = date.toString(), status = status.name,
+    administeredBy = administeredBy, administeredAt = administeredAt?.toString(), scannedCode = scannedCode,
+)
 
 @Serializable
 internal data class MedicationEvidenceRow(

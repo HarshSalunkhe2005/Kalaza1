@@ -461,10 +461,17 @@ class MarViewModel(
     val medications: StateFlow<List<MedicationEntry>> = _medications.asStateFlow()
     private val _selectedDate = MutableStateFlow(LocalDate.now())
     val selectedDate: StateFlow<LocalDate> = _selectedDate.asStateFlow()
+    private val _history = MutableStateFlow<List<MedicationHistoryEntry>>(emptyList())
+    val history: StateFlow<List<MedicationHistoryEntry>> = _history.asStateFlow()
 
     fun load(patientId: String, date: LocalDate = LocalDate.now()) {
         _selectedDate.value = date
         safeLaunch { _medications.value = repo.getMedicationsForPatient(patientId, date) }
+    }
+
+    /** Only fetched when the History tab is actually opened — unlike Today's list, this one only grows. */
+    fun loadHistory(patientId: String) {
+        safeLaunch { _history.value = repo.getAdministrationHistory(patientId) }
     }
 
     // Tapping the button gave zero feedback either way (nothing on screen

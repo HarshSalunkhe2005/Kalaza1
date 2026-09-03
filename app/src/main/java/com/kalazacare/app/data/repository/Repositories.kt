@@ -59,6 +59,8 @@ interface MedicationRepository {
     suspend fun allotMedication(id: String, staffId: String, staffName: String, scannedCode: String)
     /** The permanent compliance record of allotment/administration QR scans — see [MedicationEvidenceEvent]. */
     suspend fun getEvidenceLog(): List<MedicationEvidenceEvent>
+    /** Per-day given/missed outcomes for every dose of this patient — see [MedicationHistoryEntry]. */
+    suspend fun getAdministrationHistory(patientId: String): List<MedicationHistoryEntry>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -31,6 +31,8 @@ import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.components.matches
 import com.kalazacare.app.ui.mar.MarTable
+import com.kalazacare.app.ui.mar.MedicationHistoryTable
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.White
 import com.kalazacare.app.ui.utility.UtilityTable
@@ -608,31 +610,72 @@ private fun MarTabContent(
     marVm: MarViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    val tabs = listOf("Today", "History")
+    val history by marVm.history.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        MarTable(
-            medications = medications,
-            onRequestAllotment = { entry ->
-                marVm.requestAllotment(entry) { message ->
-                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                }
-            },
-            onEditMedication   = { updated -> marVm.updateMedication(updated) },
-            onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
-        )
+    LaunchedEffect(selectedTabIndex, patientId) {
+        if (selectedTabIndex == 1) marVm.loadHistory(patientId)
+    }
 
-        // Only Admin can add medications
-        if (SessionManager.isAdmin()) {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp),
-                containerColor = KalazaRed,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(Icons.Default.Edit, "Add Medication")
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = selectedTabIndex,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = KalazaRed,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                    color = KalazaRed,
+                    height = 3.dp
+                )
+            }
+        ) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTabIndex == index,
+                    onClick = { selectedTabIndex = index },
+                    text = {
+                        Text(
+                            text = title,
+                            fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    selectedContentColor = KalazaRed,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Box(modifier = Modifier.weight(1f)) {
+            if (selectedTabIndex == 0) {
+                MarTable(
+                    medications = medications,
+                    onRequestAllotment = { entry ->
+                        marVm.requestAllotment(entry) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    onEditMedication   = { updated -> marVm.updateMedication(updated) },
+                    onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
+                )
+
+                // Only Admin can add medications
+                if (SessionManager.isAdmin()) {
+                    FloatingActionButton(
+                        onClick = { showAddDialog = true },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
+                        containerColor = KalazaRed,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Icon(Icons.Default.Edit, "Add Medication")
+                    }
+                }
+            } else {
+                MedicationHistoryTable(entries = history, modifier = Modifier.fillMaxSize())
             }
         }
     }

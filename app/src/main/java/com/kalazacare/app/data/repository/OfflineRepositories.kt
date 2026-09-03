@@ -30,6 +30,7 @@ private object Tables {
     const val NOTIFICATIONS = "notifications"
     const val AUDIT_LOG = "audit_log"
     const val STAFF = "staff"
+    const val MEDICATION_HISTORY = "medication_administration_log"
 }
 
 private fun newLocalId() = UUID.randomUUID().toString()
@@ -242,6 +243,16 @@ class OfflineMedicationRepository(
     // Compliance report — not cached; unavailable while offline (an empty result, not a crash).
     override suspend fun getEvidenceLog(): List<MedicationEvidenceEvent> =
         if (connectivity.isOnline.value) remote.getEvidenceLog() else emptyList()
+
+    override suspend fun getAdministrationHistory(patientId: String): List<MedicationHistoryEntry> {
+        if (connectivity.isOnline.value) {
+            val history = remote.getAdministrationHistory(patientId)
+            history.forEach { cache.upsertRow(Tables.MEDICATION_HISTORY, it.id, it.toRow()) }
+            return history
+        }
+        return cache.readAllRows<MedicationHistoryRow>(Tables.MEDICATION_HISTORY).map { it.toDomain() }
+            .filter { it.patientId == patientId }.sortedByDescending { it.date }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
