@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -21,7 +23,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-const val NOTIFICATION_CHANNEL_ID = "kalaza_general"
+// Bumped from "kalaza_general" — Android locks a channel's sound/importance
+// permanently after its first creation on a device, so adding sound here only
+// takes effect for anyone already installed if the channel ID itself changes.
+const val NOTIFICATION_CHANNEL_ID = "kalaza_general_v2"
 const val EXTRA_TARGET_ROUTE = "targetRoute"
 
 /**
@@ -67,7 +72,7 @@ class KalazaMessagingService : FirebaseMessagingService() {
             .setContentText(body)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
         val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -81,8 +86,16 @@ class KalazaMessagingService : FirebaseMessagingService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) != null) return
-        manager.createNotificationChannel(
-            NotificationChannel(NOTIFICATION_CHANNEL_ID, "Kalaza Care", NotificationManager.IMPORTANCE_DEFAULT)
-        )
+        val channel = NotificationChannel(NOTIFICATION_CHANNEL_ID, "Kalaza Care", NotificationManager.IMPORTANCE_HIGH).apply {
+            enableVibration(true)
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+        }
+        manager.createNotificationChannel(channel)
     }
 }
