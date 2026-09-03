@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,6 +35,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Blocks screenshots and screen recording, and shows a blank thumbnail in the
+        // Recents switcher — patient medical/personal data appears on nearly every
+        // screen of this single-Activity app (Dashboard, Med tab, Summary, Scan, Audit
+        // Log...), so this is applied window-wide rather than toggled per-screen.
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         pendingRouteState.value = intent?.getStringExtra(EXTRA_TARGET_ROUTE)
 
         // ── Hide system navigation bar (Home / Back / Recent buttons) ──
