@@ -374,6 +374,14 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
 private const val EVIDENCE_LOG_TABLE = "medication_evidence_log"
 private const val HISTORY_LOG_TABLE = "medication_administration_log"
 
+// Same encodeDefaults=false bug as ApprovalRequestRow.entityType / NotificationRow.type
+// above — this table's tag/date/status columns are all NOT NULL with no DB-level
+// default, so a value equal to its Kotlin default is silently dropped and fails
+// with a NOT NULL violation. Unlike the other two, this hits the class's only real
+// insert path (markAdministered()) on nearly every call: `date` is recomputed to
+// today on every call (so it matches its own default expression virtually always),
+// and `tag` matches whenever the dose happens to be a Morning dose.
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class MedicationHistoryRow(
     val id: String,
@@ -381,8 +389,11 @@ internal data class MedicationHistoryRow(
     @SerialName("patient_id") val patientId: String,
     @SerialName("medicine_name") val medicineName: String = "",
     val dose: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val tag: String = "MORNING",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val date: String = LocalDate.now().toString(),
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val status: String = "MISSED",
     @SerialName("administered_by") val administeredBy: String = "",
     @SerialName("administered_at") val administeredAt: String? = null,
@@ -574,9 +585,17 @@ class SupabaseCareNoteRepository(private val client: SupabaseClient) : CareNoteR
 // Approval Queue
 // ─────────────────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class ApprovalRequestRow(
     val id: String,
+    // supabase-kt's encodeDefaults=false drops a field that equals its Kotlin
+    // default — harmless for every other field here since the DB column has a
+    // matching default, but entity_type's column is NOT NULL with no default,
+    // so the extremely common case of a PATIENT-entity request (the Kotlin
+    // default) was silently omitted from the insert and failed with a 23502
+    // NOT NULL violation. Same bug class as MedicationRow.tag (see section 21).
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("entity_type") val entityType: String = "PATIENT",
     @SerialName("entity_id") val entityId: String = "",
     val action: String = "EDIT",
@@ -714,11 +733,19 @@ class SupabaseAllotmentRequestRepository(private val client: SupabaseClient) : A
 // Notifications
 // ─────────────────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class NotificationRow(
     val id: String,
     @SerialName("recipient_staff_id") val recipientStaffId: String? = null,
     @SerialName("recipient_role") val recipientRole: String? = null,
+    // Same encodeDefaults=false bug as ApprovalRequestRow.entityType above: the
+    // extremely common case of an APPROVAL_REQUESTED notification (the Kotlin
+    // default) was silently omitted from the insert. `type` has no DB column
+    // default, so the omitted value evaluated as null against notifications_insert's
+    // per-type RLS check ("type = ANY(...)") and failed with 42501, not 23502 —
+    // a different-looking symptom of the exact same root cause.
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val type: String = "APPROVAL_REQUESTED",
     val title: String = "", val message: String = "",
     val timestamp: String = LocalDateTime.now().toString(),
