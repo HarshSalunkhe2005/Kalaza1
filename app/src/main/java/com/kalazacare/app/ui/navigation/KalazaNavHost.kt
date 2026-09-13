@@ -124,6 +124,16 @@ fun KalazaNavHost(
         }
     }
 
+    // MainActivity's own gate already tries to repopulate SessionManager from a still-valid
+    // Supabase session before this composes; if that failed (session actually expired, or the
+    // account was revoked while the app was away) but Compose Navigation's saved state still
+    // restored a non-Login route, force back to Login rather than run any screen unauthenticated.
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != null && currentRoute != Routes.LOGIN && !SessionManager.isLoggedIn()) {
+            navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+        }
+    }
+
     // A notification's targetRoute is either a static route (e.g. "approval") or
     // "patient/{id}" — both navigate the same way.
     val onNotificationTarget: (String) -> Unit = { route ->

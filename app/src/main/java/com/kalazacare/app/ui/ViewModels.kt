@@ -474,6 +474,21 @@ class MarViewModel(
         safeLaunch { _history.value = repo.getAdministrationHistory(patientId) }
     }
 
+    /**
+     * Super-Admin-only override, wired from MarTable's onMarkAdministeredAsAdmin — deliberately
+     * bypasses the Scan tab's ±30min administration window (that gating lives entirely in
+     * ScanScreen's own eligibility() check, not in the repository), since the whole point is
+     * correcting a dose that's already outside that window. Access control is enforced by the
+     * caller only passing this callback through when SessionManager.isAdmin() — this method
+     * itself has no role check, matching how updateMedication/deleteMedication already work.
+     */
+    fun markAdministeredAsAdmin(entry: MedicationEntry, scannedCode: String) {
+        safeLaunch("mark this dose as given") {
+            repo.markAdministered(entry.id, SessionManager.getCurrentStaffName(), scannedCode)
+            load(entry.patientId, _selectedDate.value)
+        }
+    }
+
     // Tapping the button gave zero feedback either way (nothing on screen
     // changes — the entry has no "request already pending" flag to grey the
     // button out with), so a real request looked identical to a silently

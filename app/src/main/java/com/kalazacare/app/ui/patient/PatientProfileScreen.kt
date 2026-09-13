@@ -32,6 +32,7 @@ import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.components.matches
 import com.kalazacare.app.ui.mar.MarTable
 import com.kalazacare.app.ui.mar.MedicationHistoryTable
+import com.kalazacare.app.ui.components.QrScanDialog
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.White
@@ -610,6 +611,7 @@ private fun MarTabContent(
     marVm: MarViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var adminMarkTarget by remember { mutableStateOf<com.kalazacare.app.data.model.MedicationEntry?>(null) }
     var selectedTabIndex by remember { mutableStateOf(0) }
     val tabs = listOf("Today", "History")
     val history by marVm.history.collectAsState()
@@ -659,6 +661,9 @@ private fun MarTabContent(
                     },
                     onEditMedication   = { updated -> marVm.updateMedication(updated) },
                     onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
+                    onMarkAdministeredAsAdmin = if (SessionManager.isAdmin()) {
+                        { entry -> adminMarkTarget = entry }
+                    } else null,
                 )
 
                 // Only Admin can add medications
@@ -690,6 +695,18 @@ private fun MarTabContent(
                 }
                 showAddDialog = false
             }
+        )
+    }
+
+    adminMarkTarget?.let { entry ->
+        QrScanDialog(
+            title = "Mark ${entry.medicineName} Given",
+            message = "Admin override — this dose is outside the normal ±30min window. Scan the QR code if available, or confirm manually.",
+            onConfirm = { scannedCode ->
+                marVm.markAdministeredAsAdmin(entry, scannedCode)
+                adminMarkTarget = null
+            },
+            onDismiss = { adminMarkTarget = null }
         )
     }
 }

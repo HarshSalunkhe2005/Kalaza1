@@ -124,6 +124,16 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
         }
     }
 
+    override suspend fun restoreSession(): Staff? {
+        client.auth.awaitInitialization()
+        val uid = client.auth.currentUserOrNull()?.id ?: return null
+        val row = client.postgrest.from(STAFF_TABLE)
+            .select { filter { eq("id", uid) } }
+            .decodeSingleOrNull<StaffRow>() ?: return null
+        if (!row.isActive) return null
+        return row.toDomain()
+    }
+
     override fun logout() {
         logoutScope.launch { runCatching { client.auth.signOut() } }
     }

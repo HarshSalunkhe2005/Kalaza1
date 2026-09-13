@@ -11,12 +11,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -24,10 +28,13 @@ import android.content.pm.PackageManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.kalazacare.app.KalazaApp
 import com.kalazacare.app.service.EXTRA_TARGET_ROUTE
 import com.kalazacare.app.ui.navigation.KalazaNavHost
+import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.KalazaTheme
 import com.kalazacare.app.util.AppErrors
+import com.kalazacare.app.util.SessionManager
 
 class MainActivity : ComponentActivity() {
     private var pendingRouteState = mutableStateOf<String?>(null)
@@ -51,6 +58,33 @@ class MainActivity : ComponentActivity() {
         setContent {
             KalazaTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    // SessionManager.currentStaff is in-memory only — it does NOT survive the
+                    // OS killing this process in the background, unlike Supabase Auth's own
+                    // session (persisted by the SDK) and Compose Navigation's back stack (restored
+                    // from saved state). Without this gate, a process restart could resurrect the
+                    // user straight onto e.g. the Scan tab with a null SessionManager, silently
+                    // attributing every write to "Unknown" instead of their real name. Block
+                    // rendering the (possibly restored) nav graph until this resolves one way or
+                    // the other: either SessionManager gets repopulated from the still-valid
+                    // Supabase session, or KalazaNavHost's own guard below sends them to Login.
+                    var sessionReady by remember { mutableStateOf(false) }
+                    val app = LocalContext.current.applicationContext as KalazaApp
+                    LaunchedEffect(Unit) {
+                        if (SessionManager.getCurrentStaff() == null) {
+                            runCatching { app.authRepository.restoreSession() }
+                                .getOrNull()
+                                ?.let { SessionManager.setCurrentStaff(it) }
+                        }
+                        sessionReady = true
+                    }
+
+                    if (!sessionReady) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = KalazaRed)
+                        }
+                        return@Surface
+                    }
+
                     val requestNotificationPermission = rememberLauncherForActivityResult(
                         ActivityResultContracts.RequestPermission()
                     ) { /* no-op either way — notifications just won't show if denied */ }

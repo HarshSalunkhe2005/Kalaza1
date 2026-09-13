@@ -10,6 +10,15 @@ import java.time.LocalDate
 interface AuthRepository {
     /** Null on any failure — wrong name, wrong password, or a revoked (inactive) account. */
     suspend fun login(name: String, password: String): Staff?
+    /**
+     * Re-derives [Staff] from whatever Supabase Auth session the SDK already restored from
+     * disk (it persists across process death on its own) — used to repopulate [SessionManager]
+     * after the OS kills and restarts the app process while Compose Navigation's own saved
+     * state puts the user back on a non-Login screen. Null if there's no valid session, or the
+     * account was revoked while the app was away — either way the caller should route to Login
+     * rather than let the app run with no identity behind it.
+     */
+    suspend fun restoreSession(): Staff?
     fun logout()
 }
 

@@ -36,6 +36,10 @@ fun MarTable(
     onRequestAllotment: (MedicationEntry) -> Unit = {},
     onEditMedication: ((MedicationEntry) -> Unit)? = null,   // CHANGE 5
     onDeleteMedication: ((MedicationEntry) -> Unit)? = null,
+    // Super-Admin-only override: the Scan tab is the normal way to mark a dose given, gated
+    // to a ±30min window around the scheduled time, but a genuinely missed dose still needs
+    // correcting after the fact — null for every other role, which hides the button entirely.
+    onMarkAdministeredAsAdmin: ((MedicationEntry) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var editTarget by remember { mutableStateOf<MedicationEntry?>(null) }
@@ -130,6 +134,17 @@ fun MarTable(
 
                     Column(horizontalAlignment = Alignment.End) {
                         MedStatusBadge(status = entry.status)
+                        if (onMarkAdministeredAsAdmin != null &&
+                            (entry.status == MedStatus.PENDING || entry.status == MedStatus.OVERDUE)
+                        ) {
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(
+                                onClick = { onMarkAdministeredAsAdmin(entry) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("Mark Given", color = KalazaRed, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
             }
