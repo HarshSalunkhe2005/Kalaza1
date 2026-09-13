@@ -266,12 +266,20 @@ fun KalazaNavHost(
             composable(Routes.SUPER_ADMIN_OVERVIEW) {
                 val dashboardVm: DashboardViewModel = viewModel(factory = factory)
                 val dailySummaryVm: DailySummaryViewModel = viewModel(factory = factory)
+                // Reused only for its existing fulfillRequest() — Super Admin isn't shown the
+                // Medicine tab itself, just borrows the same allotment-fulfillment action so
+                // requests surfaced in "Needs Your Attention" are actually actionable here.
+                val medicineVm: MedicineViewModel = viewModel(factory = factory)
                 ReloadOnResume { dashboardVm.load(); dailySummaryVm.load() }
                 SuperAdminOverviewScreen(
                     dashboardViewModel = dashboardVm,
                     dailySummaryViewModel = dailySummaryVm,
                     onPatientClick = { patientId ->
                         navController.navigate(Routes.patientProfile(patientId))
+                    },
+                    onFulfillAllotment = { request, scannedCode ->
+                        medicineVm.fulfillRequest(request, scannedCode)
+                        dailySummaryVm.load()
                     },
                     onLogout = onLogout
                 )

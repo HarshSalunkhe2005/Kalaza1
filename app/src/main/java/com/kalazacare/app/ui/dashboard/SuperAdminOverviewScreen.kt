@@ -13,12 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kalazacare.app.data.model.AllotmentRequest
 import com.kalazacare.app.data.model.MedStatus
 import com.kalazacare.app.ui.DailySummaryViewModel
 import com.kalazacare.app.ui.DashboardViewModel
 import com.kalazacare.app.ui.PatientDaySummary
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.components.MedStatusBadge
+import com.kalazacare.app.ui.components.QrScanDialog
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.DateUtils
 
@@ -35,6 +37,7 @@ fun SuperAdminOverviewScreen(
     dashboardViewModel: DashboardViewModel,
     dailySummaryViewModel: DailySummaryViewModel,
     onPatientClick: (String) -> Unit,
+    onFulfillAllotment: (AllotmentRequest, scannedCode: String) -> Unit,
     onLogout: () -> Unit,
 ) {
     val totalPatients by dashboardViewModel.totalPatients.collectAsState()
@@ -46,6 +49,7 @@ fun SuperAdminOverviewScreen(
     val isLoading by dailySummaryViewModel.isLoading.collectAsState()
 
     var groupByPatient by remember { mutableStateOf(false) }
+    var fulfillTarget by remember { mutableStateOf<AllotmentRequest?>(null) }
 
     Scaffold(
         topBar = {
@@ -103,7 +107,7 @@ fun SuperAdminOverviewScreen(
                         item {
                             CategorySection(title = "Allotment Requests", done = 0, total = pendingAllotments.size, alwaysExpandable = true) {
                                 pendingAllotments.forEach { req ->
-                                    RemainingRow("${req.patientName}: ${req.medicineName} (${DateUtils.formatTime(req.scheduledTime)}) — requested by ${req.requestedByName}")
+                                    AllotmentRequestRow(req, onFulfill = { fulfillTarget = req })
                                 }
                             }
                         }
@@ -191,6 +195,18 @@ fun SuperAdminOverviewScreen(
             }
         }
     }
+
+    fulfillTarget?.let { req ->
+        QrScanDialog(
+            title = "Fulfill Allotment Request",
+            message = "${req.medicineName} for ${req.patientName} — scan the medicine's QR code as evidence, or confirm manually.",
+            onConfirm = { scannedCode ->
+                onFulfillAllotment(req, scannedCode)
+                fulfillTarget = null
+            },
+            onDismiss = { fulfillTarget = null }
+        )
+    }
 }
 
 @Composable
@@ -240,6 +256,21 @@ private fun CategorySection(
 @Composable
 private fun RemainingRow(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+}
+
+@Composable
+private fun AllotmentRequestRow(request: AllotmentRequest, onFulfill: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "${request.patientName}: ${request.medicineName} (${DateUtils.formatTime(request.scheduledTime)}) — requested by ${request.requestedByName}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onFulfill, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+            Text("Fulfill", color = KalazaRed, style = MaterialTheme.typography.labelSmall)
+        }
+    }
 }
 
 @Composable
