@@ -26,6 +26,8 @@ import com.kalazacare.app.ui.components.matches
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.OnSurface
 import com.kalazacare.app.ui.theme.OnSurfaceVariant
+import com.kalazacare.app.ui.theme.StatusError
+import com.kalazacare.app.ui.theme.StatusSuccess
 import com.kalazacare.app.ui.theme.White
 import com.kalazacare.app.util.DateUtils
 import com.kalazacare.app.util.SessionManager
@@ -105,9 +107,11 @@ fun MarTable(
                         }
                         if (entry.status == MedStatus.ADMINISTERED && entry.administeredAt != null) {
                             Spacer(Modifier.height(4.dp))
+                            // StatusSuccess, not colorScheme.primary (the app's brand red) --
+                            // same fix as MedicationHistoryTable's Given/Missed colors.
                             Text("Administered by ${entry.administeredBy} at ${DateUtils.formatTime(entry.administeredAt.toLocalTime())}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary)
+                                color = StatusSuccess)
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -116,8 +120,8 @@ fun MarTable(
                             else "Not allotted yet",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (entry.allotmentStatus == AllotmentStatus.ALLOTTED)
-                                MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.error
+                                StatusSuccess
+                            else StatusError
                         )
                         if (entry.allotmentStatus == AllotmentStatus.NOT_ALLOTTED && entry.status != MedStatus.ADMINISTERED) {
                             TextButton(

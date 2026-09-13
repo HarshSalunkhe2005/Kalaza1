@@ -22,6 +22,8 @@ import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.OnSurface
+import com.kalazacare.app.ui.theme.StatusError
+import com.kalazacare.app.ui.theme.StatusSuccess
 import com.kalazacare.app.ui.theme.SurfaceVariant
 import com.kalazacare.app.ui.theme.White
 import com.kalazacare.app.util.DateUtils
@@ -69,8 +71,11 @@ fun MedicationHistoryTable(
         LazyColumn(modifier = Modifier.weight(1f)) {
             itemsIndexed(entries) { index, entry ->
                 val backgroundColor = if (index % 2 == 0) White else SurfaceVariant
+                // colorScheme.primary is the app's brand red (KalazaRed), not a status color --
+                // using it for "Given" made it render red instead of green. StatusSuccess/
+                // StatusError are the actual green/red pair this theme defines for exactly this.
                 val statusColor = if (entry.status == AdministrationOutcome.ADMINISTERED)
-                    MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    StatusSuccess else StatusError
 
                 Row(
                     modifier = Modifier
