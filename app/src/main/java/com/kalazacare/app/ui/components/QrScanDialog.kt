@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -17,10 +18,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -173,7 +177,13 @@ fun QrScanDialog(
     )
 }
 
-/** Live CameraX preview with an ML Kit QR-only analyzer; stops analyzing after the first decode. */
+/**
+ * Live CameraX preview with an ML Kit QR-only analyzer; stops analyzing after the first decode.
+ * Includes a torch toggle — the QR is printed and stuck up at bedside/dosing points, so evening
+ * and night scans are routinely done in poor room lighting, which was previously a dead end
+ * (the [Camera] handle CameraX hands back from [ProcessCameraProvider.bindToLifecycle] exposes
+ * torch control, but the old code discarded it instead of keeping a reference).
+ */
 @OptIn(ExperimentalGetImage::class)
 @Composable
 private fun QrCameraPreview(
@@ -184,6 +194,9 @@ private fun QrCameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
     var decoded by remember { mutableStateOf(false) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var torchOn by remember { mutableStateOf(false) }
+    var hasFlash by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -223,12 +236,13 @@ private fun QrCameraPreview(
                         }
                     }
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
                     analysis,
                 )
+                hasFlash = camera?.cameraInfo?.hasFlashUnit() == true
             } catch (_: Exception) {
                 onError("Could not start camera")
             }
@@ -248,5 +262,21 @@ private fun QrCameraPreview(
             .clip(RoundedCornerShape(8.dp)),
     ) {
         androidx.compose.ui.viewinterop.AndroidView(factory = { previewView }, modifier = Modifier.fillMaxWidth())
+        if (hasFlash) {
+            IconButton(
+                onClick = {
+                    val next = !torchOn
+                    camera?.cameraControl?.enableTorch(next)
+                    torchOn = next
+                },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+            ) {
+                Icon(
+                    if (torchOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                    contentDescription = if (torchOn) "Turn off flashlight" else "Turn on flashlight",
+                    tint = White,
+                )
+            }
+        }
     }
 }
