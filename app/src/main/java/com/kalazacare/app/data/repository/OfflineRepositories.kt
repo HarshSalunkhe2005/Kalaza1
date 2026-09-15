@@ -301,6 +301,16 @@ class OfflineUtilityRepository(
         sync.enqueue(PendingOpType.EDIT_UTILITY, syncJson.encodeToString(EditPayload(record.id, oldJson, syncJson.encodeToString(record.toRow()))))
     }
 
+    override suspend fun deleteUtilityRecord(id: String) {
+        if (connectivity.isOnline.value) {
+            remote.deleteUtilityRecord(id)
+            cache.delete(Tables.UTILITY_RECORDS, id)
+            return
+        }
+        cache.delete(Tables.UTILITY_RECORDS, id)
+        sync.enqueue(PendingOpType.DELETE_UTILITY, syncJson.encodeToString(IdPayload(id)))
+    }
+
     // Config-time item catalog management — desk-side admin action, online-only.
     override suspend fun getUtilityItems(): List<UtilityItem> = getAllUtilityItems().filter { it.isActive }
     override suspend fun getAllUtilityItems(): List<UtilityItem> {

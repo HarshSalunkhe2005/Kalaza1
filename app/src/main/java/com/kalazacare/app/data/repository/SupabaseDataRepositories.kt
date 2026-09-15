@@ -481,6 +481,9 @@ class SupabaseUtilityRepository(private val client: SupabaseClient) : UtilityRep
     override suspend fun updateUtilityRecord(record: UtilityRecord) {
         client.postgrest.from(recordsTable).update(record.toRow()) { filter { eq("id", record.id) } }
     }
+    override suspend fun deleteUtilityRecord(id: String) {
+        client.postgrest.from(recordsTable).delete { filter { eq("id", id) } }
+    }
     override suspend fun getUtilityItems(): List<UtilityItem> = getAllUtilityItems().filter { it.isActive }
     override suspend fun getAllUtilityItems(): List<UtilityItem> =
         client.postgrest.from(itemsTable).select().decodeList<UtilityItemRow>()

@@ -870,6 +870,51 @@ class UtilityViewModel(
             onResult(true, "${changes.size} edit request(s) submitted for admin approval (entry is more than 24h old)")
         }
     }
+
+    // Same 24h-grace-then-approval policy as updateRecord above — deleting a
+    // mistakenly-added entry is really just a stronger correction than editing one.
+    fun requestDelete(record: UtilityRecord, onResult: (Boolean, String) -> Unit) {
+        safeLaunch("delete this utility record") {
+            val withinGraceWindow = LocalDateTime.of(record.date, record.time).plusHours(24).isAfter(LocalDateTime.now())
+            val patientName = patientRepo.getPatientById(record.patientId)?.name ?: ""
+            if (SessionManager.isAdmin() || withinGraceWindow) {
+                repo.deleteUtilityRecord(record.id)
+                auditRepo.addLog(AuditLogEntry(
+                    action = "Utility Record Deleted",
+                    performedById = SessionManager.getCurrentStaffId(),
+                    performedByName = SessionManager.getCurrentStaffName(),
+                    targetPatientId = record.patientId,
+                    targetPatientName = patientName,
+                    details = if (SessionManager.isAdmin()) "Utility record deleted directly by Admin"
+                              else "Utility record deleted within 24h of entry",
+                    iconName = "delete",
+                ))
+                load(record.patientId)
+                onResult(true, "Utility record deleted")
+                return@safeLaunch
+            }
+            approvalRepo.submitRequest(ApprovalRequest(
+                entityType = ApprovalEntityType.UTILITY,
+                entityId = record.id,
+                action = ApprovalAction.DELETE,
+                patientId = record.patientId,
+                patientName = patientName,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+                fieldChanged = "Utility Record",
+                oldValue = "${record.date} ${record.time}",
+                newValue = "",
+            ))
+            notificationRepo.add(AppNotification(
+                recipientRole = UserRole.SUPER_ADMIN,
+                type = NotificationType.APPROVAL_REQUESTED,
+                title = "New Delete Request",
+                message = "${SessionManager.getCurrentStaffName()} requested to delete a utility record for $patientName",
+                targetRoute = "approval",
+            ))
+            onResult(true, "Delete request submitted for admin approval (entry is more than 24h old)")
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1188,8 +1233,12 @@ class ApprovalViewModel(
                     if (vital != null) vitalsRepo.updateVital(applyVitalFieldChange(vital, request.fieldChanged, request.newValue))
                 }
                 ApprovalEntityType.UTILITY -> {
-                    val record = utilityRepo.getUtilityRecordById(request.entityId)
-                    if (record != null) utilityRepo.updateUtilityRecord(applyUtilityFieldChange(record, request.fieldChanged, request.newValue))
+                    if (request.action == ApprovalAction.DELETE) {
+                        utilityRepo.deleteUtilityRecord(request.entityId)
+                    } else {
+                        val record = utilityRepo.getUtilityRecordById(request.entityId)
+                        if (record != null) utilityRepo.updateUtilityRecord(applyUtilityFieldChange(record, request.fieldChanged, request.newValue))
+                    }
                 }
                 ApprovalEntityType.CARE_NOTE -> {
                     val note = careNoteRepo.getNoteById(request.entityId)

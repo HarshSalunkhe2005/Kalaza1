@@ -44,6 +44,7 @@ object PendingOpType {
     const val EDIT_DOCTOR_VISIT = "EDIT_DOCTOR_VISIT"
     const val EDIT_PATIENT = "EDIT_PATIENT"
     const val DELETE_DOCTOR_VISIT = "DELETE_DOCTOR_VISIT"
+    const val DELETE_UTILITY = "DELETE_UTILITY"
     const val ARCHIVE_PATIENT = "ARCHIVE_PATIENT"
 }
 
@@ -254,6 +255,11 @@ class SyncManager(
             val p = syncJson.decodeFromString<IdPayload>(op.payloadJson)
             if (doctorVisitRepo.getVisitById(p.id) != null) doctorVisitRepo.deleteVisit(p.id)
             null // already gone is an equally-valid end state, not a conflict
+        }
+        PendingOpType.DELETE_UTILITY -> {
+            val p = syncJson.decodeFromString<IdPayload>(op.payloadJson)
+            if (utilityRepo.getUtilityRecordById(p.id) != null) utilityRepo.deleteUtilityRecord(p.id)
+            null
         }
         PendingOpType.ARCHIVE_PATIENT -> {
             val p = syncJson.decodeFromString<IdPayload>(op.payloadJson)

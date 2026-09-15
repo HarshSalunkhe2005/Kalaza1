@@ -883,6 +883,7 @@ private fun UtilityTabContent(
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<com.kalazacare.app.data.model.UtilityRecord?>(null) }
+    var deleteTarget by remember { mutableStateOf<com.kalazacare.app.data.model.UtilityRecord?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     // Columns: every active item, plus any deactivated item that still has logged
@@ -893,7 +894,7 @@ private fun UtilityTabContent(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        UtilityTable(records = records, items = tableColumns, onEdit = { editTarget = it })
+        UtilityTable(records = records, items = tableColumns, onEdit = { editTarget = it }, onDelete = { deleteTarget = it })
 
         FloatingActionButton(
             onClick = { showAddDialog = true },
@@ -929,6 +930,22 @@ private fun UtilityTabContent(
                 }
                 editTarget = null
             }
+        )
+    }
+
+    deleteTarget?.let { record ->
+        ConfirmDialog(
+            title = "Delete Utility Record",
+            message = "Delete this utility record? This cannot be undone.",
+            confirmText = "Delete",
+            isDestructive = true,
+            onConfirm = {
+                utilityVm.requestDelete(record) { _, message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null }
         )
     }
 }
