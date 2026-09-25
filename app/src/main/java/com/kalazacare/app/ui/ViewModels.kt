@@ -89,7 +89,7 @@ class LoginViewModel(
             runCatching {
                 val token = FirebaseMessaging.getInstance().token.await()
                 staffRepo.updateFcmToken(staffId, token)
-            }
+            }.onFailure { android.util.Log.w("KalazaPush", "FCM token save failed", it) }
         }
     }
     fun resetState() { _loginState.value = LoginState.Idle }

@@ -35,6 +35,7 @@ import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.ui.theme.KalazaTheme
 import com.kalazacare.app.util.AppErrors
 import com.kalazacare.app.util.SessionManager
+import kotlinx.coroutines.tasks.await
 
 class MainActivity : ComponentActivity() {
     private var pendingRouteState = mutableStateOf<String?>(null)
@@ -74,6 +75,15 @@ class MainActivity : ComponentActivity() {
                             runCatching { app.authRepository.restoreSession() }
                                 .getOrNull()
                                 ?.let { SessionManager.setCurrentStaff(it) }
+                        }
+                        // The FCM token used to be saved only at the login screen, so anyone who
+                        // stayed logged in (or whose one login-time save failed) never got a token
+                        // and never received a push. Re-sync on every launch.
+                        SessionManager.getCurrentStaff()?.let { staff ->
+                            runCatching {
+                                val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+                                app.staffRepository.updateFcmToken(staff.id, token)
+                            }.onFailure { android.util.Log.w("KalazaPush", "FCM token sync failed", it) }
                         }
                         sessionReady = true
                     }
