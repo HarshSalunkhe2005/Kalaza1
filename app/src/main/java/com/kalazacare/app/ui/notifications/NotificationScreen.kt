@@ -27,6 +27,7 @@ import com.kalazacare.app.ui.NotificationViewModel
 import com.kalazacare.app.ui.components.EmptyState
 import com.kalazacare.app.ui.components.KalazaTopBar
 import com.kalazacare.app.ui.theme.KalazaRed
+import com.kalazacare.app.ui.theme.OnSurface
 import com.kalazacare.app.util.timeAgo
 
 @Composable
@@ -121,18 +122,22 @@ private fun NotificationCard(
                     text = notification.title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
+                    color = OnSurface,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = notification.message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = OnSurface,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                // Dark, semi-bold and larger than before: the old light-grey labelSmall
+                // was unreadable, especially on the pink unread-card background.
                 Text(
                     text = notification.timestamp.timeAgo(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = OnSurface.copy(alpha = 0.75f),
                 )
             }
         }
