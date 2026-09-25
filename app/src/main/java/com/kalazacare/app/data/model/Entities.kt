@@ -39,6 +39,9 @@ enum class ApprovalAction { EDIT, DELETE }
 
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
+/** A dose can be given from its scheduled time until this many minutes after; past that it's Missed (OVERDUE). */
+const val DOSE_WINDOW_MINUTES = 60
+
 enum class AllotmentStatus { NOT_ALLOTTED, ALLOTTED }
 
 enum class AllotmentRequestStatus { PENDING, FULFILLED }

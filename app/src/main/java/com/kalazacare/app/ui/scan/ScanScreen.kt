@@ -209,7 +209,7 @@ private fun ScanEntry(
 private enum class DoseEligibility { GIVEN, NOT_YET_DUE, DUE, WINDOW_CLOSED }
 
 /** A dose can be marked given from its scheduled time until this many minutes after it. */
-private const val ADMIN_WINDOW_MINUTES = 60
+private const val ADMIN_WINDOW_MINUTES = com.kalazacare.app.data.model.DOSE_WINDOW_MINUTES
 
 /**
  * Signed distance from [scheduleTime] to [now] in minutes, shortest way around the clock —

@@ -251,7 +251,8 @@ private fun MedicationEntry.withComputedStatus(): MedicationEntry {
     if (e.status != MedStatus.PENDING && e.status != MedStatus.OVERDUE) return e
     val effectiveDate = if (e.isRecurring) LocalDate.now() else e.scheduledDate
     val scheduledAt = LocalDateTime.of(effectiveDate, e.scheduleTime)
-    val computed = if (scheduledAt.isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
+    // Still PENDING through the whole giving window; only Missed once it has closed.
+    val computed = if (scheduledAt.plusMinutes(DOSE_WINDOW_MINUTES.toLong()).isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
     return if (computed != e.status) e.copy(status = computed) else e
 }
 
