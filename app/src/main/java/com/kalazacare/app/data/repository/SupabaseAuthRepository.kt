@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -135,7 +136,18 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
     }
 
     override fun logout() {
-        logoutScope.launch { runCatching { client.auth.signOut() } }
+        logoutScope.launch {
+            // Clear this phone's push token first (needs the still-valid session), otherwise the
+            // account keeps receiving its alerts on this phone after logging out.
+            runCatching {
+                val uid = client.auth.currentUserOrNull()?.id
+                if (uid != null) {
+                    client.postgrest.from(STAFF_TABLE).update(mapOf("fcm_token" to "")) { filter { eq("id", uid) } }
+                }
+            }.onFailure { android.util.Log.w("KalazaPush", "Could not clear FCM token on logout", it) }
+            runCatching { client.auth.signOut() }
+            runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken().await() }
+        }
     }
 }
 
