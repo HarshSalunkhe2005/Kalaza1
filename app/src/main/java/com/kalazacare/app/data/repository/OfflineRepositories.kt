@@ -537,7 +537,7 @@ class OfflineNotificationRepository(
             return list
         }
         return cache.readAllRows<NotificationRow>(Tables.NOTIFICATIONS).map { it.toDomain() }
-            .filter { it.recipientStaffId == staffId || it.recipientRole == role }.sortedByDescending { it.timestamp }
+            .filter { it.recipientStaffId == staffId || it.recipientRole == role.notificationRole() }.sortedByDescending { it.timestamp }
     }
 
     override suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int =

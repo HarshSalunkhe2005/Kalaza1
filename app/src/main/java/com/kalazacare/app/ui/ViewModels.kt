@@ -113,9 +113,9 @@ class LoginViewModel(
             val staff = authRepo.login(name, password)
             when {
                 staff == null -> _bypassState.value = BypassState.Error("Invalid credentials")
-                staff.role != UserRole.SUPER_ADMIN -> {
+                staff.role != UserRole.SUPER_ADMIN && staff.role != UserRole.ADMIN -> {
                     authRepo.logout()
-                    _bypassState.value = BypassState.Error("Only a Super Admin account can bypass the Wi-Fi check")
+                    _bypassState.value = BypassState.Error("Only a Super Admin or Admin account can bypass the Wi-Fi check")
                 }
                 else -> {
                     SessionManager.setCurrentStaff(staff)

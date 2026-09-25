@@ -208,14 +208,14 @@ private fun ScanEntry(
 /** Why a dose can't be checked off right now — drives both its visual state and whether it's selectable. */
 private enum class DoseEligibility { GIVEN, NOT_YET_DUE, DUE, WINDOW_CLOSED }
 
-/** How long before/after the scheduled time a dose can actually be marked given. */
-private const val ADMIN_WINDOW_MINUTES = 30
+/** A dose can be marked given from its scheduled time until this many minutes after it. */
+private const val ADMIN_WINDOW_MINUTES = 60
 
 /**
  * Signed distance from [scheduleTime] to [now] in minutes, shortest way around the clock —
  * a plain LocalTime subtraction breaks for a dose scheduled near midnight (e.g. an 11:50pm
- * Evening dose whose +30min window end, 00:20, would otherwise look like it's *before*
- * 11:50pm instead of 30 minutes after it).
+ * Evening dose whose window end, 00:50, would otherwise look like it's *before*
+ * 11:50pm instead of 60 minutes after it).
  */
 private fun MedicationEntry.minutesFromDue(now: LocalTime): Int {
     val dueMin = scheduleTime.hour * 60 + scheduleTime.minute
@@ -226,13 +226,13 @@ private fun MedicationEntry.minutesFromDue(now: LocalTime): Int {
 }
 
 /**
- * A dose can only be marked given within [ADMIN_WINDOW_MINUTES] on either side of its
- * scheduled time — outside that window it's either not due yet, or locked entirely until
- * its next occurrence (tomorrow, for a recurring dose) approaches its own window.
+ * A dose can only be marked given from its scheduled time until [ADMIN_WINDOW_MINUTES]
+ * after it (e.g. 8:00–9:00) — before that it's not due yet, after it it's locked entirely
+ * until its next occurrence (tomorrow, for a recurring dose) opens its own window.
  */
 private fun MedicationEntry.eligibility(now: LocalTime): DoseEligibility = when {
     status == MedStatus.ADMINISTERED -> DoseEligibility.GIVEN
-    minutesFromDue(now) < -ADMIN_WINDOW_MINUTES -> DoseEligibility.NOT_YET_DUE
+    minutesFromDue(now) < 0 -> DoseEligibility.NOT_YET_DUE
     minutesFromDue(now) > ADMIN_WINDOW_MINUTES -> DoseEligibility.WINDOW_CLOSED
     else -> DoseEligibility.DUE
 }

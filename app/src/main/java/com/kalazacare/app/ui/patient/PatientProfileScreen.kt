@@ -701,7 +701,7 @@ private fun MarTabContent(
     adminMarkTarget?.let { entry ->
         QrScanDialog(
             title = "Mark ${entry.medicineName} Given",
-            message = "Admin override — this dose is outside the normal ±30min window. Scan the QR code if available, or confirm manually.",
+            message = "Admin override — this dose is outside the normal 1-hour window. Scan the QR code if available, or confirm manually.",
             onConfirm = { scannedCode ->
                 marVm.markAdministeredAsAdmin(entry, scannedCode)
                 adminMarkTarget = null

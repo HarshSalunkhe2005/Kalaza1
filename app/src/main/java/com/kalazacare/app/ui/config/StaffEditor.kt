@@ -98,22 +98,33 @@ fun StaffEditor(
                         ) {
                             // Every card gets this, including the Super Admin's own —
                             // it's the same "set a password" action either way.
-                            TextButton(onClick = { passwordResetTarget = staff }) {
-                                Text("Change Password", color = KalazaRed)
+                            // Admins can't touch other Admins or the Super Admin (own card excepted);
+                            // the Super Admin can never be revoked or deleted by anyone.
+                            val isSelf = staff.id == currentStaffId
+                            val callerIsSuperAdmin = com.kalazacare.app.util.SessionManager.isSuperAdmin()
+                            val targetIsPrivileged = staff.role == UserRole.SUPER_ADMIN || staff.role == UserRole.ADMIN
+                            val canManage = !isSelf && staff.role != UserRole.SUPER_ADMIN &&
+                                (callerIsSuperAdmin || !targetIsPrivileged)
+                            if (isSelf || callerIsSuperAdmin || !targetIsPrivileged) {
+                                TextButton(onClick = { passwordResetTarget = staff }) {
+                                    Text("Change Password", color = KalazaRed)
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.width(1.dp))
                             }
                             Row {
-                                if (staff.isActive) {
-                                    if (staff.id != currentStaffId) {
+                                if (canManage) {
+                                    if (staff.isActive) {
                                         TextButton(onClick = { onRevokeStaff(staff.id) }) {
                                             Text("Revoke", color = MaterialTheme.colorScheme.error)
                                         }
-                                    }
-                                } else {
-                                    TextButton(onClick = { onUnrevokeStaff(staff.id) }) {
-                                        Text("Activate", color = KalazaRed)
-                                    }
-                                    TextButton(onClick = { onDeleteStaff(staff.id) }) {
-                                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                                    } else {
+                                        TextButton(onClick = { onUnrevokeStaff(staff.id) }) {
+                                            Text("Activate", color = KalazaRed)
+                                        }
+                                        TextButton(onClick = { onDeleteStaff(staff.id) }) {
+                                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                                        }
                                     }
                                 }
                             }
@@ -252,7 +263,11 @@ private fun AddStaffDialog(
                     ) {
                         // SuperAdmin can assign any of the three operational roles —
                         // SUPER_ADMIN accounts aren't created through this dialog.
-                        UserRole.entries.filter { it != UserRole.SUPER_ADMIN }.forEach { role ->
+                        // Only the Super Admin can create an Admin.
+                        UserRole.entries.filter {
+                            it != UserRole.SUPER_ADMIN &&
+                                (it != UserRole.ADMIN || com.kalazacare.app.util.SessionManager.isSuperAdmin())
+                        }.forEach { role ->
                             DropdownMenuItem(
                                 text = { Text(role.displayLabel()) },
                                 onClick = {

@@ -48,8 +48,8 @@ Deno.serve(async (req) => {
     .select("role, is_active")
     .eq("id", user.id)
     .maybeSingle();
-  if (!callerStaff || callerStaff.role !== "SUPER_ADMIN" || !callerStaff.is_active) {
-    return new Response(JSON.stringify({ error: "Only an active Super Admin can delete staff" }), { status: 403 });
+  if (!callerStaff || !["SUPER_ADMIN", "ADMIN"].includes(callerStaff.role) || !callerStaff.is_active) {
+    return new Response(JSON.stringify({ error: "Only an active Super Admin or Admin can delete staff" }), { status: 403 });
   }
 
   let body: { targetStaffId?: string };
@@ -64,6 +64,15 @@ Deno.serve(async (req) => {
   }
   if (targetStaffId === user.id) {
     return new Response(JSON.stringify({ error: "Cannot delete your own account" }), { status: 400 });
+  }
+
+  // The Super Admin can never be removed; only the Super Admin can remove an Admin.
+  const { data: target } = await admin.from("staff").select("role").eq("id", targetStaffId).maybeSingle();
+  if (target?.role === "SUPER_ADMIN") {
+    return new Response(JSON.stringify({ error: "The Super Admin cannot be removed" }), { status: 403 });
+  }
+  if (target?.role === "ADMIN" && callerStaff.role !== "SUPER_ADMIN") {
+    return new Response(JSON.stringify({ error: "Only the Super Admin can remove an Admin" }), { status: 403 });
   }
 
   const { error: staffDeleteErr } = await admin.from("staff").delete().eq("id", targetStaffId);

@@ -9,10 +9,10 @@ object SessionManager {
     fun setCurrentStaff(staff: Staff) { currentStaff = staff }
     fun getCurrentStaff(): Staff? = currentStaff
     fun isLoggedIn(): Boolean = currentStaff != null
-    // isAdmin() means SuperAdmin — the old, fully-privileged Admin role. Every
-    // existing isAdmin()-gated feature keeps working exactly as before; only the
-    // enum name changed underneath it.
-    fun isAdmin(): Boolean = currentStaff?.role == UserRole.SUPER_ADMIN
+    // isAdmin() is true for Super Admin AND Admin — they share every privilege.
+    fun isAdmin(): Boolean = currentStaff?.role.let { it == UserRole.SUPER_ADMIN || it == UserRole.ADMIN }
+    // Only the Super Admin can create/remove Admins.
+    fun isSuperAdmin(): Boolean = currentStaff?.role == UserRole.SUPER_ADMIN
     fun isSupervisor(): Boolean = currentStaff?.role == UserRole.SUPERVISOR
     fun getCurrentStaffName(): String = currentStaff?.name ?: "Unknown"
     fun getCurrentStaffId(): String = currentStaff?.id ?: ""

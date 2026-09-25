@@ -8,8 +8,8 @@
 // to `medications`, compared by IST calendar date so a recurring dose's
 // checkpoints reset every day):
 //   - 15 min before the deadline  -> reminder to STAFF and SUPERVISOR
-//   - 5 min after the deadline    -> alert to SUPERVISOR
-//   - 10 min after the deadline   -> escalation to SUPER_ADMIN
+//   - 5 min after the dose time   -> "not given yet" nudge to SUPERVISOR
+//   - 65 min after the dose time  -> missed (window closed +5) to SUPERVISOR and SUPER_ADMIN
 //
 // The 5-min tier used to target the restricted photo-audit-only ADMIN role;
 // that role was removed from the app entirely (only SUPER_ADMIN/STAFF/
@@ -63,7 +63,7 @@ Deno.serve(async () => {
 
   const { data: meds, error } = await supabase
     .from("medications")
-    .select("id, patient_id, medicine_name, schedule_time, scheduled_date, is_recurring, recurring_days, status, reminder_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
+    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, reminder_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
     .in("status", ["PENDING", "OVERDUE"]);
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
@@ -107,22 +107,51 @@ Deno.serve(async () => {
       reminders++;
     }
 
-    if (diffMinutes >= 5 && !sentToday(med.admin_alert_sent_at, today)) {
+    // The dose window is scheduled time -> +60 min. At +5 the supervisor gets a
+    // "still not given" nudge while it's still fixable.
+    if (diffMinutes >= 5 && diffMinutes < 65 && !sentToday(med.admin_alert_sent_at, today)) {
       await supabase.from("notifications").insert({
         recipient_role: "SUPERVISOR", type: "MEDICATION_MISSED_ALERT",
-        title: "Missed dose", message: `${med.medicine_name} for ${patientName} was not given on time`,
+        title: "Dose not given yet", message: `${med.medicine_name} for ${patientName} has not been given yet`,
         target_route: `patient/${med.patient_id}`,
       });
       await supabase.from("medications").update({ admin_alert_sent_at: new Date().toISOString() }).eq("id", med.id);
       adminAlerts++;
     }
 
-    if (diffMinutes >= 10 && !sentToday(med.superadmin_alert_sent_at, today)) {
-      await supabase.from("notifications").insert({
-        recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ESCALATION",
-        title: "Escalation: missed dose", message: `${med.medicine_name} for ${patientName} is still not given (10+ min overdue)`,
-        target_route: `patient/${med.patient_id}`,
+    // At +65 (window closed + 5) the dose is missed: Supervisor and Super Admin
+    // are both told. Both share superadmin_alert_sent_at for dedupe.
+    if (diffMinutes >= 65 && !sentToday(med.superadmin_alert_sent_at, today)) {
+      await supabase.from("notifications").insert([
+        {
+          recipient_role: "SUPERVISOR", type: "MEDICATION_MISSED_ALERT",
+          title: "Missed dose", message: `${med.medicine_name} for ${patientName} was missed (window closed)`,
+          target_route: `patient/${med.patient_id}`,
+        },
+        {
+          recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ESCALATION",
+          title: "Missed dose", message: `${med.medicine_name} for ${patientName} was missed (window closed)`,
+          target_route: `patient/${med.patient_id}`,
+        },
+      ]);
+      // Durable trail: the window has closed without the dose being given.
+      await supabase.from("audit_log").insert({
+        action: "Dose Missed",
+        target_patient_id: med.patient_id,
+        target_patient_name: patientName,
+        details: `${med.medicine_name} was not administered within its scheduled window`,
+        icon_name: "cancel",
       });
+      // Per-day history ledger row; a race with markAdministered() is harmless (unique on medication_id,date).
+      await supabase.from("medication_administration_log").insert({
+        medication_id: med.id,
+        patient_id: med.patient_id,
+        medicine_name: med.medicine_name,
+        dose: med.dose,
+        tag: med.tag,
+        date: effectiveDate,
+        status: "MISSED",
+      }, { onConflict: "medication_id,date", ignoreDuplicates: true });
       await supabase.from("medications").update({ superadmin_alert_sent_at: new Date().toISOString() }).eq("id", med.id);
       escalations++;
     }

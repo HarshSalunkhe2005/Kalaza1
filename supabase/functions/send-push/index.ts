@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
     const { data } = await supabase
       .from("staff")
       .select("fcm_token")
-      .eq("role", record.recipient_role)
+      .in("role", record.recipient_role === "SUPER_ADMIN" ? ["SUPER_ADMIN", "ADMIN"] : [record.recipient_role])
       .eq("is_active", true);
     tokens = (data ?? []).map((r) => r.fcm_token).filter((t): t is string => !!t);
   }

@@ -48,8 +48,8 @@ Deno.serve(async (req) => {
     .select("role, is_active")
     .eq("id", user.id)
     .maybeSingle();
-  if (!callerStaff || callerStaff.role !== "SUPER_ADMIN" || !callerStaff.is_active) {
-    return new Response(JSON.stringify({ error: "Only an active Super Admin can reset passwords" }), { status: 403 });
+  if (!callerStaff || !["SUPER_ADMIN", "ADMIN"].includes(callerStaff.role) || !callerStaff.is_active) {
+    return new Response(JSON.stringify({ error: "Only an active Super Admin or Admin can reset passwords" }), { status: 403 });
   }
 
   let body: { targetStaffId?: string; newPassword?: string };
@@ -64,6 +64,15 @@ Deno.serve(async (req) => {
       JSON.stringify({ error: `targetStaffId and a password of at least ${MIN_PASSWORD_LENGTH} characters are required` }),
       { status: 400 },
     );
+  }
+
+  // An Admin can reset their own and Staff/Supervisor passwords, but not another
+  // Admin's or the Super Admin's — only the Super Admin can.
+  if (callerStaff.role === "ADMIN" && targetStaffId !== user.id) {
+    const { data: target } = await admin.from("staff").select("role").eq("id", targetStaffId).maybeSingle();
+    if (!target || ["ADMIN", "SUPER_ADMIN"].includes(target.role)) {
+      return new Response(JSON.stringify({ error: "Only the Super Admin can reset an Admin's password" }), { status: 403 });
+    }
   }
 
   // staff.id IS the Supabase Auth user id (set that way at staff creation —
