@@ -658,15 +658,26 @@ private fun MarTabContent(
             if (selectedTabIndex == 0) {
                 MarTable(
                     medications = medications,
-                    onEditMedication   = { updated -> marVm.updateMedication(updated) },
-                    onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
+                    onEditMedication   = { updated ->
+                        val original = medications.firstOrNull { it.id == updated.id }
+                        if (original != null) {
+                            marVm.requestEditMedication(original, updated) { _, message ->
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    onDeleteMedication = { entry ->
+                        marVm.requestDeleteMedication(entry) { _, message ->
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    },
                     onMarkAdministeredAsAdmin = if (SessionManager.isAdmin()) {
                         { entry -> adminMarkTarget = entry }
                     } else null,
                 )
 
-                // Only Admin can add medications
-                if (SessionManager.isAdmin()) {
+                // Super Admin adds directly; Supervisor can too, but it goes through approval.
+                if (SessionManager.isAdmin() || SessionManager.isSupervisor()) {
                     FloatingActionButton(
                         onClick = { showAddDialog = true },
                         modifier = Modifier

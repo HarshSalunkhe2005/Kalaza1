@@ -74,8 +74,10 @@ fun MarTable(
                             Text(entry.medicineName, style = MaterialTheme.typography.titleMedium,
                                 color = OnSurface, fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f))
-                            // Add/edit/delete of MAR entries is SuperAdmin-only
-                            if (SessionManager.isAdmin()) {
+                            // Super Admin edits/deletes directly; Supervisor can too, but it always
+                            // goes through Super Admin approval first (see MarViewModel.requestEditMedication/
+                            // requestDeleteMedication). Staff has no access at all.
+                            if (SessionManager.isAdmin() || SessionManager.isSupervisor()) {
                                 IconButton(
                                     onClick = { editTarget = entry },
                                     modifier = Modifier.size(32.dp)

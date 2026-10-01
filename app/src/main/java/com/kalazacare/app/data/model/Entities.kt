@@ -32,12 +32,13 @@ enum class Gender { MALE, FEMALE, OTHER }
 enum class ApprovalStatus { PENDING, APPROVED, REJECTED }
 
 /** What kind of record an [ApprovalRequest] applies its diff to once approved. */
-enum class ApprovalEntityType { PATIENT, DOCTOR_VISIT, VITAL, UTILITY, CARE_NOTE }
+enum class ApprovalEntityType { PATIENT, DOCTOR_VISIT, VITAL, UTILITY, CARE_NOTE, MEDICATION }
 
 /** Which PatientProfileScreen tab (Info=0, Vitals=1, Med=2, Utilities=3, Visits=4, Notes=5) a change to this entity belongs on — used so a notification about it deep-links straight there instead of always landing on Info. */
 fun ApprovalEntityType.profileTabIndex(): Int = when (this) {
     ApprovalEntityType.PATIENT -> 0
     ApprovalEntityType.VITAL -> 1
+    ApprovalEntityType.MEDICATION -> 2
     ApprovalEntityType.UTILITY -> 3
     ApprovalEntityType.DOCTOR_VISIT -> 4
     ApprovalEntityType.CARE_NOTE -> 5
@@ -50,10 +51,15 @@ fun ApprovalEntityType.displayLabel(): String = when (this) {
     ApprovalEntityType.UTILITY -> "Utility"
     ApprovalEntityType.DOCTOR_VISIT -> "Doctor Visit"
     ApprovalEntityType.CARE_NOTE -> "Care Note"
+    ApprovalEntityType.MEDICATION -> "Medicine"
 }
 
-/** What an [ApprovalRequest] is asking for — a field edit, or removing the whole record. */
-enum class ApprovalAction { EDIT, DELETE }
+/**
+ * What an [ApprovalRequest] is asking for. Unlike the other entity types (whose
+ * records are always created directly, approval only gates edit/delete), Medicine
+ * additions from a Supervisor also require Super Admin approval — hence ADD.
+ */
+enum class ApprovalAction { ADD, EDIT, DELETE }
 
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
@@ -238,6 +244,24 @@ data class ApprovalRequest(
     val timestamp: LocalDateTime = LocalDateTime.now(),
     val reviewedAt: LocalDateTime? = null,
     val rejectionReason: String = "",
+)
+
+/**
+ * The full new entry for an [ApprovalAction.ADD] request on [ApprovalEntityType.MEDICATION] —
+ * unlike an edit/delete, there's no existing record to diff a single field against, so the whole
+ * draft medication is serialized into [ApprovalRequest.newValue] and decoded back on approval.
+ */
+@kotlinx.serialization.Serializable
+data class NewMedicationPayload(
+    val medicineName: String = "",
+    val dose: String = "",
+    val quantity: String = "",
+    val scheduleTime: String = "",   // ISO LocalTime
+    val tag: String = "",            // DoseTag name
+    val scheduledDate: String = "",  // ISO LocalDate
+    val isRecurring: Boolean = true,
+    val recurringDays: String = "",  // CSV of ISO day-of-week ints, empty = every day
+    val notes: String = "",
 )
 
 /**

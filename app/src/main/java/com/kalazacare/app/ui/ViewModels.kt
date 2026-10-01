@@ -8,6 +8,7 @@ import com.kalazacare.app.data.local.PendingOperationEntity
 import com.kalazacare.app.data.model.*
 import com.kalazacare.app.data.repository.*
 import com.kalazacare.app.data.sync.SyncManager
+import com.kalazacare.app.data.sync.syncJson
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.util.AppErrors
 import com.kalazacare.app.util.SessionManager
@@ -19,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -451,6 +454,7 @@ class MarViewModel(
     private val repo: MedicationRepository,
     private val patientRepo: PatientRepository,
     private val notificationRepo: NotificationRepository,
+    private val approvalRepo: ApprovalRepository,
 ) : ViewModel() {
     private val _medications  = MutableStateFlow<List<MedicationEntry>>(emptyList())
     val medications: StateFlow<List<MedicationEntry>> = _medications.asStateFlow()
@@ -484,31 +488,135 @@ class MarViewModel(
         }
     }
 
+    // Super Admin adds directly. A Supervisor's add is submitted for approval instead —
+    // no 24h grace window like Vitals/Utility, every Supervisor-initiated add always
+    // needs Super Admin sign-off. Staff has no access at all (gated in the UI).
     fun addMedication(entry: MedicationEntry, onResult: (warning: String?) -> Unit = {}) {
-        if (!SessionManager.isAdmin()) return
-        safeLaunch("add this medication") {
-            val admissionDate = patientRepo.getPatientById(entry.patientId)?.admissionDate
-            val warning = if (admissionDate != null && entry.scheduledDate.isBefore(admissionDate))
-                "Warning: this dose is scheduled before the patient's admission date ($admissionDate)"
-            else null
-            repo.addMedication(entry)
-            load(entry.patientId, entry.scheduledDate)
-            onResult(warning)
+        if (SessionManager.isAdmin()) {
+            safeLaunch("add this medication") {
+                val admissionDate = patientRepo.getPatientById(entry.patientId)?.admissionDate
+                val warning = if (admissionDate != null && entry.scheduledDate.isBefore(admissionDate))
+                    "Warning: this dose is scheduled before the patient's admission date ($admissionDate)"
+                else null
+                repo.addMedication(entry)
+                load(entry.patientId, entry.scheduledDate)
+                onResult(warning)
+            }
+            return
+        }
+        if (!SessionManager.isSupervisor()) return
+        safeLaunch("submit this medication for Super Admin approval") {
+            val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
+            val payload = NewMedicationPayload(
+                medicineName = entry.medicineName,
+                dose = entry.dose,
+                quantity = entry.quantity,
+                scheduleTime = entry.scheduleTime.toString(),
+                tag = entry.tag.name,
+                scheduledDate = entry.scheduledDate.toString(),
+                isRecurring = entry.isRecurring,
+                recurringDays = entry.recurringDays.joinToString(","),
+                notes = entry.notes,
+            )
+            approvalRepo.submitRequest(ApprovalRequest(
+                entityType = ApprovalEntityType.MEDICATION,
+                action = ApprovalAction.ADD,
+                patientId = entry.patientId,
+                patientName = patientName,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+                fieldChanged = "New Medication",
+                newValue = syncJson.encodeToString(payload),
+            ))
+            notificationRepo.add(AppNotification(
+                recipientRole = UserRole.SUPER_ADMIN,
+                type = NotificationType.APPROVAL_REQUESTED,
+                title = "Medicine Add Request",
+                message = "${SessionManager.getCurrentStaffName()} requested to add ${entry.medicineName} for $patientName",
+                targetRoute = "approval",
+            ))
+            onResult("Add request submitted for Super Admin approval")
         }
     }
 
-    // Edit existing medication entry (SuperAdmin only)
-    fun updateMedication(entry: MedicationEntry) {
-        if (!SessionManager.isAdmin()) return
-        safeLaunch { repo.updateMedication(entry); load(entry.patientId, entry.scheduledDate) }
+    // Same policy as addMedication above: Super Admin direct, Supervisor always via
+    // approval (no grace window), Staff has no access (gated in the UI).
+    fun requestEditMedication(original: MedicationEntry, updated: MedicationEntry, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (SessionManager.isAdmin()) {
+            safeLaunch("update this medication") {
+                repo.updateMedication(updated)
+                load(updated.patientId, updated.scheduledDate)
+                onResult(true, "Medication updated")
+            }
+            return
+        }
+        if (!SessionManager.isSupervisor()) return
+        safeLaunch("submit this medication change for approval") {
+            val changes = mutableListOf<Pair<String, Pair<String, String>>>()
+            if (original.medicineName != updated.medicineName) changes.add("Medicine Name" to (original.medicineName to updated.medicineName))
+            if (original.dose != updated.dose) changes.add("Dose" to (original.dose to updated.dose))
+            if (original.quantity != updated.quantity) changes.add("Quantity" to (original.quantity to updated.quantity))
+            if (original.scheduleTime != updated.scheduleTime) changes.add("Time" to (original.scheduleTime.toString() to updated.scheduleTime.toString()))
+            if (original.tag != updated.tag) changes.add("Tag" to (original.tag.name to updated.tag.name))
+            if (original.notes != updated.notes) changes.add("Notes" to (original.notes to updated.notes))
+            if (changes.isEmpty()) { onResult(false, "No changes detected"); return@safeLaunch }
+            val patientName = patientRepo.getPatientById(original.patientId)?.name ?: ""
+            changes.forEach { (field, vals) ->
+                approvalRepo.submitRequest(ApprovalRequest(
+                    entityType = ApprovalEntityType.MEDICATION,
+                    entityId = original.id,
+                    patientId = original.patientId,
+                    patientName = patientName,
+                    requestedById = SessionManager.getCurrentStaffId(),
+                    requestedByName = SessionManager.getCurrentStaffName(),
+                    fieldChanged = field,
+                    oldValue = vals.first,
+                    newValue = vals.second,
+                ))
+            }
+            notificationRepo.add(AppNotification(
+                recipientRole = UserRole.SUPER_ADMIN,
+                type = NotificationType.APPROVAL_REQUESTED,
+                title = "Medicine Edit Request",
+                message = "${SessionManager.getCurrentStaffName()} requested ${changes.size} change(s) to a medication for $patientName",
+                targetRoute = "approval",
+            ))
+            onResult(true, "${changes.size} edit request(s) submitted for Super Admin approval")
+        }
     }
 
-    // Add/edit/delete of MAR entries is SuperAdmin-only (enforced in the UI too,
-    // but the ViewModel double-checks — same defense-in-depth pattern as every
-    // other privileged mutation in this file).
-    fun deleteMedication(entry: MedicationEntry) {
-        if (!SessionManager.isAdmin()) return
-        safeLaunch { repo.deleteMedication(entry.id); load(entry.patientId, entry.scheduledDate) }
+    fun requestDeleteMedication(entry: MedicationEntry, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (SessionManager.isAdmin()) {
+            safeLaunch("delete this medication") {
+                repo.deleteMedication(entry.id)
+                load(entry.patientId, entry.scheduledDate)
+                onResult(true, "Medication deleted")
+            }
+            return
+        }
+        if (!SessionManager.isSupervisor()) return
+        safeLaunch("submit this deletion for approval") {
+            val patientName = patientRepo.getPatientById(entry.patientId)?.name ?: ""
+            approvalRepo.submitRequest(ApprovalRequest(
+                entityType = ApprovalEntityType.MEDICATION,
+                entityId = entry.id,
+                action = ApprovalAction.DELETE,
+                patientId = entry.patientId,
+                patientName = patientName,
+                requestedById = SessionManager.getCurrentStaffId(),
+                requestedByName = SessionManager.getCurrentStaffName(),
+                fieldChanged = "Medication",
+                oldValue = "${entry.medicineName} (${entry.dose})",
+            ))
+            notificationRepo.add(AppNotification(
+                recipientRole = UserRole.SUPER_ADMIN,
+                type = NotificationType.APPROVAL_REQUESTED,
+                title = "Medicine Delete Request",
+                message = "${SessionManager.getCurrentStaffName()} requested to delete ${entry.medicineName} for $patientName",
+                targetRoute = "approval",
+            ))
+            onResult(true, "Delete request submitted for Super Admin approval")
+        }
     }
 }
 
@@ -1007,6 +1115,7 @@ class ApprovalViewModel(
     private val vitalsRepo: VitalsRepository,
     private val utilityRepo: UtilityRepository,
     private val careNoteRepo: CareNoteRepository,
+    private val medicationRepo: MedicationRepository,
 ) : ViewModel() {
     private val _requests = MutableStateFlow<List<ApprovalRequest>>(emptyList())
     val requests: StateFlow<List<ApprovalRequest>> = _requests.asStateFlow()
@@ -1070,6 +1179,22 @@ class ApprovalViewModel(
             }
         }
         ApprovalEntityType.CARE_NOTE -> careNoteRepo.getNoteById(request.entityId)?.note
+        ApprovalEntityType.MEDICATION -> {
+            // ADD has no existing record to diff against yet — just pass the staleness
+            // check trivially (oldValue is always "" for an add request).
+            if (request.action == ApprovalAction.ADD) request.oldValue
+            else medicationRepo.getMedicationById(request.entityId)?.let { m ->
+                when (request.fieldChanged) {
+                    "Medicine Name" -> m.medicineName
+                    "Dose"          -> m.dose
+                    "Quantity"      -> m.quantity
+                    "Time"          -> m.scheduleTime.toString()
+                    "Tag"           -> m.tag.name
+                    "Notes"         -> m.notes
+                    else            -> request.oldValue
+                }
+            }
+        }
     }
 
     fun approve(id: String) {
@@ -1118,6 +1243,28 @@ class ApprovalViewModel(
                 ApprovalEntityType.CARE_NOTE -> {
                     val note = careNoteRepo.getNoteById(request.entityId)
                     if (note != null) careNoteRepo.updateNote(note.copy(note = request.newValue))
+                }
+                ApprovalEntityType.MEDICATION -> when (request.action) {
+                    ApprovalAction.ADD -> {
+                        val payload = syncJson.decodeFromString<NewMedicationPayload>(request.newValue)
+                        medicationRepo.addMedication(MedicationEntry(
+                            patientId = request.patientId,
+                            medicineName = payload.medicineName,
+                            dose = payload.dose,
+                            quantity = payload.quantity,
+                            scheduleTime = java.time.LocalTime.parse(payload.scheduleTime),
+                            tag = runCatching { DoseTag.valueOf(payload.tag) }.getOrDefault(DoseTag.MORNING),
+                            scheduledDate = java.time.LocalDate.parse(payload.scheduledDate),
+                            isRecurring = payload.isRecurring,
+                            recurringDays = payload.recurringDays.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet(),
+                            notes = payload.notes,
+                        ))
+                    }
+                    ApprovalAction.DELETE -> medicationRepo.deleteMedication(request.entityId)
+                    ApprovalAction.EDIT -> {
+                        val med = medicationRepo.getMedicationById(request.entityId)
+                        if (med != null) medicationRepo.updateMedication(applyMedicationFieldChange(med, request.fieldChanged, request.newValue))
+                    }
                 }
             }
             auditRepo.addLog(AuditLogEntry(
@@ -1227,6 +1374,16 @@ class ApprovalViewModel(
         "Issued By"  -> record.copy(issuedBySupervisor = newValue)
         "Checked By" -> record.copy(checkedBy = newValue)
         else         -> record
+    }
+
+    private fun applyMedicationFieldChange(entry: MedicationEntry, field: String, newValue: String): MedicationEntry = when (field) {
+        "Medicine Name" -> entry.copy(medicineName = newValue)
+        "Dose"          -> entry.copy(dose = newValue)
+        "Quantity"      -> entry.copy(quantity = newValue)
+        "Time"          -> entry.copy(scheduleTime = runCatching { java.time.LocalTime.parse(newValue) }.getOrDefault(entry.scheduleTime))
+        "Tag"           -> entry.copy(tag = runCatching { DoseTag.valueOf(newValue) }.getOrDefault(entry.tag))
+        "Notes"         -> entry.copy(notes = newValue)
+        else            -> entry
     }
 }
 
@@ -1417,12 +1574,12 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(DashboardViewModel::class.java)   -> DashboardViewModel(patientRepo, medRepo, approvalRepo) as T
         modelClass.isAssignableFrom(PatientViewModel::class.java)     -> PatientViewModel(patientRepo, approvalRepo, auditRepo, notificationRepo) as T
         modelClass.isAssignableFrom(VitalsViewModel::class.java)      -> VitalsViewModel(vitalsRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
-        modelClass.isAssignableFrom(MarViewModel::class.java)         -> MarViewModel(medRepo, patientRepo, notificationRepo) as T
+        modelClass.isAssignableFrom(MarViewModel::class.java)         -> MarViewModel(medRepo, patientRepo, notificationRepo, approvalRepo) as T
         modelClass.isAssignableFrom(ScanViewModel::class.java)        -> ScanViewModel(medRepo, patientRepo) as T
         modelClass.isAssignableFrom(UtilityViewModel::class.java)     -> UtilityViewModel(utilityRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(DoctorVisitViewModel::class.java) -> DoctorVisitViewModel(doctorVisitRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(CareNoteViewModel::class.java)    -> CareNoteViewModel(careNoteRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
-        modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo, vitalsRepo, utilityRepo, careNoteRepo) as T
+        modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo, vitalsRepo, utilityRepo, careNoteRepo, medRepo) as T
         modelClass.isAssignableFrom(AuditLogViewModel::class.java)    -> AuditLogViewModel(auditRepo) as T
         modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo, syncManager) as T
         modelClass.isAssignableFrom(SummaryViewModel::class.java)     -> SummaryViewModel(medRepo, vitalsRepo, approvalRepo, patientRepo, utilityRepo, doctorVisitRepo, careNoteRepo) as T
