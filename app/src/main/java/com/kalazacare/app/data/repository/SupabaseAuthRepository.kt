@@ -135,18 +135,22 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
         return row.toDomain()
     }
 
-    override fun logout() {
+    override fun logout(clearPushToken: Boolean) {
         logoutScope.launch {
-            // Clear this phone's push token first (needs the still-valid session), otherwise the
-            // account keeps receiving its alerts on this phone after logging out.
-            runCatching {
-                val uid = client.auth.currentUserOrNull()?.id
-                if (uid != null) {
-                    client.postgrest.from(STAFF_TABLE).update(mapOf("fcm_token" to "")) { filter { eq("id", uid) } }
-                }
-            }.onFailure { android.util.Log.w("KalazaPush", "Could not clear FCM token on logout", it) }
+            if (clearPushToken) {
+                // Clear this phone's push token first (needs the still-valid session), otherwise
+                // the account keeps receiving its alerts on this phone after logging out.
+                runCatching {
+                    val uid = client.auth.currentUserOrNull()?.id
+                    if (uid != null) {
+                        client.postgrest.from(STAFF_TABLE).update(mapOf("fcm_token" to "")) { filter { eq("id", uid) } }
+                    }
+                }.onFailure { android.util.Log.w("KalazaPush", "Could not clear FCM token on logout", it) }
+            }
             runCatching { client.auth.signOut() }
-            runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken().await() }
+            if (clearPushToken) {
+                runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken().await() }
+            }
         }
     }
 }

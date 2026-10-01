@@ -115,14 +115,19 @@ fun KalazaNavHost(
     }
 
     // Logout handler — clears local session, signs out of Supabase Auth
-    // server-side, and navigates back to login
-    val onLogout: () -> Unit = {
-        app.authRepository.logout()
+    // server-side, and navigates back to login. clearPushToken is false only for the
+    // idle auto-logout below (same person/phone, just locked) so that case doesn't
+    // kill their own notifications until they next open the app. Every screen keeps
+    // using the plain onLogout below (an explicit tap always clears the token) —
+    // performLogout is only for the auto-logout timer's own, deliberately different, call.
+    val performLogout: (clearPushToken: Boolean) -> Unit = { clearPushToken ->
+        app.authRepository.logout(clearPushToken)
         SessionManager.logout()
         navController.navigate(Routes.LOGIN) {
             popUpTo(0) { inclusive = true }
         }
     }
+    val onLogout: () -> Unit = { performLogout(true) }
 
     // MainActivity's own gate already tries to repopulate SessionManager from a still-valid
     // Supabase session before this composes; if that failed (session actually expired, or the
@@ -181,7 +186,7 @@ fun KalazaNavHost(
             if (SessionManager.isLoggedIn() &&
                 System.currentTimeMillis() - lastInteractionAt >= AUTO_LOGOUT_TIMEOUT_MS
             ) {
-                onLogout()
+                performLogout(false)
                 lastInteractionAt = System.currentTimeMillis()
             }
         }

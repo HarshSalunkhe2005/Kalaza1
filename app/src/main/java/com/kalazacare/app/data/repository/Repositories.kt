@@ -19,7 +19,13 @@ interface AuthRepository {
      * rather than let the app run with no identity behind it.
      */
     suspend fun restoreSession(): Staff?
-    fun logout()
+    /**
+     * [clearPushToken] = false for the 15-min idle auto-logout: same person, same phone, just
+     * locked for security — clearing the token there would silently kill their own push
+     * notifications until they next open the app. Only an explicit Logout tap (someone
+     * deliberately leaving, or handing the phone to someone else) should clear it.
+     */
+    fun logout(clearPushToken: Boolean = true)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
