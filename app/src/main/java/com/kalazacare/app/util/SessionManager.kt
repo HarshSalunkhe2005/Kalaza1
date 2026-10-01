@@ -13,7 +13,6 @@ object SessionManager {
     fun isAdmin(): Boolean = currentStaff?.role.let { it == UserRole.SUPER_ADMIN || it == UserRole.ADMIN }
     // Only the Super Admin can create/remove Admins.
     fun isSuperAdmin(): Boolean = currentStaff?.role == UserRole.SUPER_ADMIN
-    fun isSupervisor(): Boolean = currentStaff?.role == UserRole.SUPERVISOR
     fun getCurrentStaffName(): String = currentStaff?.name ?: "Unknown"
     fun getCurrentStaffId(): String = currentStaff?.id ?: ""
     fun logout() { currentStaff = null }

@@ -1,7 +1,13 @@
 # Kalaza Care - Project State & Workflows
 
 ## Overview
-Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Super Admins, regular Staff, and Supervisor, with an intricate approval queue for staff-made edits and a two-checkpoint (allot → administer) medication workflow.
+Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Super Admin, Admin, Staff, and Supervisor, with an approval queue for staff-made edits. The old two-checkpoint (allot → administer) medication workflow and its "Medicine" tab were removed entirely (the facility no longer separates who allots a dose from who gives it) — Supervisor's bottom nav is now identical to Staff's (Tasks/Patients/Scan).
+
+### Notification deep-linking
+Every notification that targets a specific patient uses `patient/{id}?tab={n}` (Info=0, Vitals=1, Med=2, Utilities=3, Visits=4, Notes=5) so tapping it opens the actual relevant tab, not just the patient's Info page — see `ApprovalEntityType.profileTabIndex()` in Entities.kt and both watchdog Edge Functions' `target_route` values. Approval-request notifications (which go to the approver, not a specific patient tab) still target the generic `"approval"` route.
+
+### Daily task watchdog (Vitals/Utilities)
+`supabase/functions/daily-task-watchdog`, scheduled every minute via pg_cron, separate from `medication-watchdog` since these are once-a-day-per-patient checks, not per-dose: Vitals due by 09:00 IST (Supervisor alert at 09:00, Super Admin/Admin escalation at 09:30); Utilities due by 21:30 IST (Supervisor alert at 21:30, escalation at 22:00). Dedup via `vitals_alert_sent_at`/`vitals_escalation_sent_at`/`utility_alert_sent_at`/`utility_escalation_sent_at` on `patients`.
 
 ## Technology Stack
 - **Platform:** Android (Min SDK 26, Target SDK 35)

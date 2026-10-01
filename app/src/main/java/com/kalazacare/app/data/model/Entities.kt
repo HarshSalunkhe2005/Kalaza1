@@ -34,6 +34,24 @@ enum class ApprovalStatus { PENDING, APPROVED, REJECTED }
 /** What kind of record an [ApprovalRequest] applies its diff to once approved. */
 enum class ApprovalEntityType { PATIENT, DOCTOR_VISIT, VITAL, UTILITY, CARE_NOTE }
 
+/** Which PatientProfileScreen tab (Info=0, Vitals=1, Med=2, Utilities=3, Visits=4, Notes=5) a change to this entity belongs on — used so a notification about it deep-links straight there instead of always landing on Info. */
+fun ApprovalEntityType.profileTabIndex(): Int = when (this) {
+    ApprovalEntityType.PATIENT -> 0
+    ApprovalEntityType.VITAL -> 1
+    ApprovalEntityType.UTILITY -> 3
+    ApprovalEntityType.DOCTOR_VISIT -> 4
+    ApprovalEntityType.CARE_NOTE -> 5
+}
+
+/** Human-readable label for notification titles, e.g. "Vitals Edit Request". */
+fun ApprovalEntityType.displayLabel(): String = when (this) {
+    ApprovalEntityType.PATIENT -> "Patient"
+    ApprovalEntityType.VITAL -> "Vitals"
+    ApprovalEntityType.UTILITY -> "Utility"
+    ApprovalEntityType.DOCTOR_VISIT -> "Doctor Visit"
+    ApprovalEntityType.CARE_NOTE -> "Care Note"
+}
+
 /** What an [ApprovalRequest] is asking for — a field edit, or removing the whole record. */
 enum class ApprovalAction { EDIT, DELETE }
 
@@ -41,10 +59,6 @@ enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
 /** A dose can be given from its scheduled time until this many minutes after; past that it's Missed (OVERDUE). */
 const val DOSE_WINDOW_MINUTES = 60
-
-enum class AllotmentStatus { NOT_ALLOTTED, ALLOTTED }
-
-enum class AllotmentRequestStatus { PENDING, FULFILLED }
 
 /**
  * Coarse dosing bucket a medication is assigned to, independent of its exact
@@ -145,11 +159,6 @@ data class MedicationEntry(
     val administeredBy: String = "",
     val administeredAt: LocalDateTime? = null,
     val notes: String = "",
-    val allotmentStatus: AllotmentStatus = AllotmentStatus.NOT_ALLOTTED,
-    val allottedById: String = "",
-    val allottedByName: String = "",
-    val allottedAt: LocalDateTime? = null,
-    val allotmentScannedCode: String = "",
     val administeredScannedCode: String = "",
 )
 
@@ -170,23 +179,6 @@ data class MedicationHistoryEntry(
     val administeredBy: String = "",
     val administeredAt: LocalDateTime? = null,
     val scannedCode: String = "",
-)
-
-data class AllotmentRequest(
-    val id: String = "",
-    val medicationEntryId: String = "",
-    val patientId: String = "",
-    val patientName: String = "",
-    val medicineName: String = "",
-    val dose: String = "",           // added so card can show dose
-    val scheduledTime: LocalTime = LocalTime.now(),
-    val requestedById: String = "",
-    val requestedByName: String = "",
-    val status: AllotmentRequestStatus = AllotmentRequestStatus.PENDING,
-    val fulfilledById: String = "",
-    val fulfilledByName: String = "",
-    val timestamp: LocalDateTime = LocalDateTime.now(),
-    val fulfilledAt: LocalDateTime? = null,
 )
 
 data class UtilityRecord(
@@ -249,12 +241,11 @@ data class ApprovalRequest(
 )
 
 /**
- * A permanent, append-only record of one allotment/administration QR-scan
- * event — separate from [MedicationEntry]'s own allotment/administered
- * fields, which are a *live* view that resets daily for recurring doses
- * (see MedicationRepository.withComputedStatus), so a dose resetting to
- * PENDING the next day doesn't erase yesterday's evidence from the
- * compliance record.
+ * A permanent, append-only record of one administration QR-scan event —
+ * separate from [MedicationEntry]'s own `status`/`administeredAt` fields,
+ * which are a *live* view that resets daily for recurring doses (see
+ * MedicationRepository.withComputedStatus), so a dose resetting to PENDING
+ * the next day doesn't erase yesterday's evidence from the compliance record.
  */
 data class MedicationEvidenceEvent(
     val id: String = "",

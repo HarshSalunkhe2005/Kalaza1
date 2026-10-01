@@ -31,13 +31,10 @@ object PendingOpType {
     const val ADD_DOCTOR_VISIT = "ADD_DOCTOR_VISIT"
     const val ADD_CARE_NOTE = "ADD_CARE_NOTE"
     const val SUBMIT_APPROVAL_REQUEST = "SUBMIT_APPROVAL_REQUEST"
-    const val SUBMIT_ALLOTMENT_REQUEST = "SUBMIT_ALLOTMENT_REQUEST"
 
     // Mutations — need a conflict check against current server state before replay.
     const val MED_MARK_ADMINISTERED = "MED_MARK_ADMINISTERED"
-    const val MED_ALLOT = "MED_ALLOT"
     const val APPROVAL_REVIEW = "APPROVAL_REVIEW"
-    const val ALLOTMENT_FULFILL = "ALLOTMENT_FULFILL"
     const val EDIT_VITAL = "EDIT_VITAL"
     const val EDIT_UTILITY = "EDIT_UTILITY"
     const val EDIT_CARE_NOTE = "EDIT_CARE_NOTE"
@@ -60,16 +57,10 @@ internal data class IdPayload(val id: String)
 internal data class MarkAdministeredPayload(val id: String, val staffName: String, val scannedCode: String)
 
 @kotlinx.serialization.Serializable
-internal data class AllotPayload(val id: String, val staffId: String, val staffName: String, val scannedCode: String)
-
-@kotlinx.serialization.Serializable
 internal data class ApprovalReviewPayload(
     val id: String, val reviewerId: String, val reviewerName: String,
     val approve: Boolean, val reason: String = "",
 )
-
-@kotlinx.serialization.Serializable
-internal data class FulfillPayload(val id: String, val staffId: String, val staffName: String)
 
 /**
  * Drains [PendingOperationDao]'s queue once connectivity returns, replaying each write
@@ -90,7 +81,6 @@ class SyncManager(
     private val doctorVisitRepo: DoctorVisitRepository,
     private val careNoteRepo: CareNoteRepository,
     private val approvalRepo: ApprovalRepository,
-    private val allotmentRequestRepo: AllotmentRequestRepository,
     private val auditRepo: AuditRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -184,10 +174,6 @@ class SyncManager(
         PendingOpType.SUBMIT_APPROVAL_REQUEST -> {
             client.postgrest.from("approval_requests").insert(syncJson.decodeFromString<ApprovalRequestRow>(op.payloadJson)); null
         }
-        PendingOpType.SUBMIT_ALLOTMENT_REQUEST -> {
-            client.postgrest.from("allotment_requests").insert(syncJson.decodeFromString<AllotmentRequestRow>(op.payloadJson)); null
-        }
-
         PendingOpType.MED_MARK_ADMINISTERED -> {
             val p = syncJson.decodeFromString<MarkAdministeredPayload>(op.payloadJson)
             val current = medicationRepo.getMedicationById(p.id)
@@ -196,16 +182,6 @@ class SyncManager(
                 current.status == com.kalazacare.app.data.model.MedStatus.ADMINISTERED ->
                     "${current.medicineName} was already marked given by someone else while this device was offline."
                 else -> { medicationRepo.markAdministered(p.id, p.staffName, p.scannedCode); null }
-            }
-        }
-        PendingOpType.MED_ALLOT -> {
-            val p = syncJson.decodeFromString<AllotPayload>(op.payloadJson)
-            val current = medicationRepo.getMedicationById(p.id)
-            when {
-                current == null -> "Dose no longer exists — it may have been deleted."
-                current.allotmentStatus == com.kalazacare.app.data.model.AllotmentStatus.ALLOTTED ->
-                    "${current.medicineName} was already allotted by someone else while this device was offline."
-                else -> { medicationRepo.allotMedication(p.id, p.staffId, p.staffName, p.scannedCode); null }
             }
         }
         PendingOpType.APPROVAL_REVIEW -> {
@@ -219,17 +195,6 @@ class SyncManager(
                 else -> { approvalRepo.reject(p.id, p.reviewerId, p.reviewerName, p.reason); null }
             }
         }
-        PendingOpType.ALLOTMENT_FULFILL -> {
-            val p = syncJson.decodeFromString<FulfillPayload>(op.payloadJson)
-            val current = allotmentRequestRepo.getAllRequests().firstOrNull { it.id == p.id }
-            when {
-                current == null -> "Allotment request no longer exists."
-                current.status != com.kalazacare.app.data.model.AllotmentRequestStatus.PENDING ->
-                    "This allotment request was already fulfilled by someone else while this device was offline."
-                else -> { allotmentRequestRepo.fulfillRequest(p.id, p.staffId, p.staffName); null }
-            }
-        }
-
         PendingOpType.EDIT_VITAL -> replayEdit(op.payloadJson,
             fetchCurrentRowJson = { id -> vitalsRepo.getVitalById(id)?.toRow()?.let { syncJson.encodeToString(it) } },
             apply = { row: VitalRow -> vitalsRepo.updateVital(row.toDomain()) },

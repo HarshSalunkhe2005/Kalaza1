@@ -13,7 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.kalazacare.app.data.model.AllotmentStatus
 import com.kalazacare.app.ui.MedicineRoundItem
 import com.kalazacare.app.ui.TodoListViewModel
 import com.kalazacare.app.ui.components.EmptyState
@@ -101,14 +100,6 @@ private fun TodoTaskCard(task: MedicineRoundItem, onClick: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                if (task.entry.allotmentStatus == AllotmentStatus.NOT_ALLOTTED) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Needs allotment",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
             }
             MedStatusBadge(task.entry.status)
             Spacer(modifier = Modifier.width(4.dp))

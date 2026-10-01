@@ -53,6 +53,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 @Composable
 fun PatientProfileScreen(
     patientId: String,
+    initialTab: Int = 0,
     factory: KalazaViewModelFactory,
     onBack: () -> Unit,
     onEditPatient: () -> Unit,
@@ -85,7 +86,10 @@ fun PatientProfileScreen(
     }
 
     val tabs = listOf("Info", "Vitals", "Med", "Utilities", "Visits", "Notes")
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val pagerState = rememberPagerState(
+        initialPage = initialTab.coerceIn(0, tabs.size - 1),
+        pageCount = { tabs.size },
+    )
     val coroutineScope = rememberCoroutineScope()
 
     val p = patient
@@ -654,11 +658,6 @@ private fun MarTabContent(
             if (selectedTabIndex == 0) {
                 MarTable(
                     medications = medications,
-                    onRequestAllotment = { entry ->
-                        marVm.requestAllotment(entry) { message ->
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                        }
-                    },
                     onEditMedication   = { updated -> marVm.updateMedication(updated) },
                     onDeleteMedication = { entry -> marVm.deleteMedication(entry) },
                     onMarkAdministeredAsAdmin = if (SessionManager.isAdmin()) {

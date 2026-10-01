@@ -90,7 +90,7 @@ Deno.serve(async () => {
       await supabase.from("notifications").insert({
         recipient_role: "STAFF", type: "MEDICATION_REMINDER",
         title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due shortly`,
-        target_route: `patient/${med.patient_id}`,
+        target_route: `patient/${med.patient_id}?tab=2`,
       });
       await supabase.from("medications").update({ reminder_sent_at: new Date().toISOString() }).eq("id", med.id);
       reminders++;
@@ -100,7 +100,7 @@ Deno.serve(async () => {
       await supabase.from("notifications").insert({
         recipient_role: "SUPERVISOR", type: "MEDICATION_REMINDER",
         title: "Dose due now", message: `${med.medicine_name} for ${patientName} is due now`,
-        target_route: `patient/${med.patient_id}`,
+        target_route: `patient/${med.patient_id}?tab=2`,
       });
       await supabase.from("medications").update({ due_now_sent_at: new Date().toISOString() }).eq("id", med.id);
       dueNow++;
@@ -112,7 +112,7 @@ Deno.serve(async () => {
       await supabase.from("notifications").insert({
         recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ALERT",
         title: "Dose not given yet", message: `${med.medicine_name} for ${patientName} has not been given yet`,
-        target_route: `patient/${med.patient_id}`,
+        target_route: `patient/${med.patient_id}?tab=2`,
       });
       await supabase.from("medications").update({ admin_alert_sent_at: new Date().toISOString() }).eq("id", med.id);
       adminAlerts++;
@@ -125,12 +125,12 @@ Deno.serve(async () => {
         {
           recipient_role: "SUPERVISOR", type: "MEDICATION_MISSED_ALERT",
           title: "Missed dose", message: `${med.medicine_name} for ${patientName} was missed (window closed)`,
-          target_route: `patient/${med.patient_id}`,
+          target_route: `patient/${med.patient_id}?tab=2`,
         },
         {
           recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ESCALATION",
           title: "Missed dose", message: `${med.medicine_name} for ${patientName} was missed (window closed)`,
-          target_route: `patient/${med.patient_id}`,
+          target_route: `patient/${med.patient_id}?tab=2`,
         },
       ]);
       // Durable trail: the window has closed without the dose being given.

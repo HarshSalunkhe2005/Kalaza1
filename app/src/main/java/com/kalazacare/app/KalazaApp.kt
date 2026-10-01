@@ -26,7 +26,6 @@ class KalazaApp : Application() {
     lateinit var approvalRepository:   ApprovalRepository
     lateinit var auditRepository:      AuditRepository
     lateinit var staffRepository:      StaffRepository
-    lateinit var allotmentRequestRepository: AllotmentRequestRepository
     lateinit var notificationRepository: NotificationRepository
     lateinit var connectivityObserver: ConnectivityObserver
     lateinit var syncManager: SyncManager
@@ -50,7 +49,6 @@ class KalazaApp : Application() {
         val supabaseCareNote = SupabaseCareNoteRepository(client)
         val supabaseApproval = SupabaseApprovalRepository(client)
         val supabaseAudit = SupabaseAuditRepository(client)
-        val supabaseAllotmentRequest = SupabaseAllotmentRequestRepository(client)
         val supabaseNotification = SupabaseNotificationRepository(client)
 
         authRepository = supabaseAuth
@@ -67,7 +65,6 @@ class KalazaApp : Application() {
             doctorVisitRepo = supabaseDoctorVisit,
             careNoteRepo = supabaseCareNote,
             approvalRepo = supabaseApproval,
-            allotmentRequestRepo = supabaseAllotmentRequest,
             auditRepo = supabaseAudit,
         ).also { it.start() }
 
@@ -79,7 +76,6 @@ class KalazaApp : Application() {
         careNoteRepository = OfflineCareNoteRepository(supabaseCareNote, cacheDao, connectivityObserver, syncManager)
         approvalRepository = OfflineApprovalRepository(supabaseApproval, cacheDao, connectivityObserver, syncManager)
         auditRepository = OfflineAuditRepository(supabaseAudit, cacheDao, connectivityObserver)
-        allotmentRequestRepository = OfflineAllotmentRequestRepository(supabaseAllotmentRequest, cacheDao, connectivityObserver, syncManager)
         notificationRepository = OfflineNotificationRepository(supabaseNotification, cacheDao, connectivityObserver)
     }
 }

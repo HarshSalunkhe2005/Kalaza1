@@ -77,9 +77,7 @@ fun SyncConflictsTab(
 
 private fun opLabel(opType: String): String = when (opType) {
     "MED_MARK_ADMINISTERED" -> "Mark Dose Given"
-    "MED_ALLOT" -> "Allot Dose"
     "APPROVAL_REVIEW" -> "Approve/Reject Request"
-    "ALLOTMENT_FULFILL" -> "Fulfill Allotment Request"
     "EDIT_VITAL" -> "Edit Vital"
     "EDIT_UTILITY" -> "Edit Utility Record"
     "EDIT_CARE_NOTE" -> "Edit Care Note"

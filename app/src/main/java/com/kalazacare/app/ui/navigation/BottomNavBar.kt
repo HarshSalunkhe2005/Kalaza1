@@ -23,15 +23,13 @@ data class BottomNavItem(
 @Composable
 fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
     val isAdmin = SessionManager.isAdmin()
-    val isSupervisor = SessionManager.isSupervisor()   // CHANGE 8
 
+    // Supervisor has no screens of its own beyond Staff's (the Medicine/allotment tab that
+    // used to distinguish them was removed) — both roles get the same bottom nav.
     val staffItems = listOf(
         BottomNavItem(Routes.TODO_LIST, "Tasks", Icons.Filled.Assignment, Icons.Outlined.Assignment),
         BottomNavItem(Routes.DASHBOARD, "Patients", Icons.Filled.People, Icons.Outlined.People),
         BottomNavItem(Routes.SCAN, "Scan", Icons.Filled.QrCodeScanner, Icons.Outlined.QrCodeScanner),
-    )
-    val supervisorItems = staffItems + listOf(
-        BottomNavItem(Routes.MEDICINE, "Medicine", Icons.Filled.Medication, Icons.Outlined.Medication),
     )
     val adminItems = listOf(
         BottomNavItem(Routes.SUPER_ADMIN_OVERVIEW, "Overview",  Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
@@ -41,11 +39,7 @@ fun KalazaBottomNavBar(navController: NavController, currentRoute: String?) {
         BottomNavItem(Routes.CONFIG,         "Config",    Icons.Filled.Settings,  Icons.Outlined.Settings),
         BottomNavItem(Routes.SUMMARY,        "Summary",   Icons.Filled.BarChart,  Icons.Outlined.BarChart),
     )
-    val items = when {
-        isAdmin      -> adminItems
-        isSupervisor -> supervisorItems
-        else         -> staffItems
-    }
+    val items = if (isAdmin) adminItems else staffItems
     val rootRoute = if (isAdmin) Routes.SUPER_ADMIN_OVERVIEW else Routes.TODO_LIST
 
     NavigationBar(

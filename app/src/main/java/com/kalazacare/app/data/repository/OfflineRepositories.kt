@@ -26,7 +26,6 @@ private object Tables {
     const val DOCTOR_VISITS = "doctor_visits"
     const val CARE_NOTES = "care_notes"
     const val APPROVAL_REQUESTS = "approval_requests"
-    const val ALLOTMENT_REQUESTS = "allotment_requests"
     const val NOTIFICATIONS = "notifications"
     const val AUDIT_LOG = "audit_log"
     const val STAFF = "staff"
@@ -224,20 +223,6 @@ class OfflineMedicationRepository(
             ))
         }
         sync.enqueue(PendingOpType.MED_MARK_ADMINISTERED, syncJson.encodeToString(MarkAdministeredPayload(id, staffName, scannedCode)))
-    }
-
-    override suspend fun allotMedication(id: String, staffId: String, staffName: String, scannedCode: String) {
-        if (connectivity.isOnline.value) {
-            remote.allotMedication(id, staffId, staffName, scannedCode)
-            return
-        }
-        cache.readRow<MedicationRow>(table, id)?.let {
-            cache.upsertRow(table, id, it.copy(
-                allotmentStatus = AllotmentStatus.ALLOTTED.name, allottedById = staffId, allottedByName = staffName,
-                allottedAt = java.time.LocalDateTime.now().toString(), allotmentScannedCode = scannedCode,
-            ))
-        }
-        sync.enqueue(PendingOpType.MED_ALLOT, syncJson.encodeToString(AllotPayload(id, staffId, staffName, scannedCode)))
     }
 
     // Compliance report — not cached; unavailable while offline (an empty result, not a crash).
@@ -475,48 +460,6 @@ class OfflineApprovalRepository(
         cache.upsertRow(Tables.APPROVAL_REQUESTS, saved.id, saved.toRow())
         sync.enqueue(PendingOpType.SUBMIT_APPROVAL_REQUEST, syncJson.encodeToString(saved.toRow()))
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Allotment Requests
-// ─────────────────────────────────────────────────────────────────────────────
-
-class OfflineAllotmentRequestRepository(
-    private val remote: AllotmentRequestRepository,
-    private val cache: CachedRowDao,
-    private val connectivity: ConnectivityObserver,
-    private val sync: SyncManager,
-) : AllotmentRequestRepository {
-    override suspend fun getAllRequests(): List<AllotmentRequest> {
-        if (connectivity.isOnline.value) {
-            val all = remote.getAllRequests()
-            all.forEach { cache.upsertRow(Tables.ALLOTMENT_REQUESTS, it.id, it.toRow()) }
-            return all
-        }
-        return cache.readAllRows<AllotmentRequestRow>(Tables.ALLOTMENT_REQUESTS).map { it.toDomain() }.sortedByDescending { it.timestamp }
-    }
-
-    override suspend fun getPendingRequests(): List<AllotmentRequest> =
-        if (connectivity.isOnline.value) remote.getPendingRequests()
-        else getAllRequests().filter { it.status == AllotmentRequestStatus.PENDING }
-
-    override suspend fun submitRequest(request: AllotmentRequest) {
-        if (connectivity.isOnline.value) { remote.submitRequest(request); return }
-        val saved = request.copy(id = newLocalId())
-        cache.upsertRow(Tables.ALLOTMENT_REQUESTS, saved.id, saved.toRow())
-        sync.enqueue(PendingOpType.SUBMIT_ALLOTMENT_REQUEST, syncJson.encodeToString(saved.toRow()))
-    }
-
-    override suspend fun fulfillRequest(id: String, staffId: String, staffName: String) {
-        if (connectivity.isOnline.value) { remote.fulfillRequest(id, staffId, staffName); return }
-        cache.readRow<AllotmentRequestRow>(Tables.ALLOTMENT_REQUESTS, id)?.let {
-            cache.upsertRow(Tables.ALLOTMENT_REQUESTS, id, it.copy(status = AllotmentRequestStatus.FULFILLED.name, fulfilledById = staffId, fulfilledByName = staffName))
-        }
-        sync.enqueue(PendingOpType.ALLOTMENT_FULFILL, syncJson.encodeToString(FulfillPayload(id, staffId, staffName)))
-    }
-
-    override suspend fun getByMedicationEntryId(medicationEntryId: String): AllotmentRequest? =
-        getPendingRequests().firstOrNull { it.medicationEntryId == medicationEntryId }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

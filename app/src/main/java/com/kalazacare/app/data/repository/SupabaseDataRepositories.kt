@@ -182,11 +182,6 @@ internal data class MedicationRow(
     @SerialName("administered_by") val administeredBy: String = "",
     @SerialName("administered_at") val administeredAt: String? = null,
     val notes: String = "",
-    @SerialName("allotment_status") val allotmentStatus: String = "NOT_ALLOTTED",
-    @SerialName("allotted_by_id") val allottedById: String? = null,
-    @SerialName("allotted_by_name") val allottedByName: String = "",
-    @SerialName("allotted_at") val allottedAt: String? = null,
-    @SerialName("allotment_scanned_code") val allotmentScannedCode: String = "",
     @SerialName("administered_scanned_code") val administeredScannedCode: String = "",
 )
 internal fun MedicationRow.toDomain(): MedicationEntry {
@@ -198,9 +193,6 @@ internal fun MedicationRow.toDomain(): MedicationEntry {
         recurringDays = recurringDays.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet(),
         status = runCatching { MedStatus.valueOf(status) }.getOrDefault(MedStatus.PENDING),
         administeredBy = administeredBy, administeredAt = parseTimestampOrNull(administeredAt), notes = notes,
-        allotmentStatus = runCatching { AllotmentStatus.valueOf(allotmentStatus) }.getOrDefault(AllotmentStatus.NOT_ALLOTTED),
-        allottedById = allottedById ?: "", allottedByName = allottedByName,
-        allottedAt = parseTimestampOrNull(allottedAt), allotmentScannedCode = allotmentScannedCode,
         administeredScannedCode = administeredScannedCode,
     )
     return entry.withComputedStatus()
@@ -211,8 +203,6 @@ internal fun MedicationEntry.toRow() = MedicationRow(
     scheduledDate = scheduledDate.toString(), isRecurring = isRecurring,
     recurringDays = recurringDays.sorted().joinToString(","), status = status.name,
     administeredBy = administeredBy, administeredAt = administeredAt?.toString(), notes = notes,
-    allotmentStatus = allotmentStatus.name, allottedById = allottedById.ifBlank { null }, allottedByName = allottedByName,
-    allottedAt = allottedAt?.toString(), allotmentScannedCode = allotmentScannedCode,
     administeredScannedCode = administeredScannedCode,
 )
 
@@ -224,10 +214,10 @@ internal fun MedicationEntry.toRow() = MedicationRow(
  * judged against today's date instead — only a one-off dose is checked
  * against its own stored date.
  *
- * A *recurring* dose that was ALLOTTED/ADMINISTERED also resets back to a
- * fresh PENDING/OVERDUE view once its allotted/administered day has passed —
- * otherwise "given yesterday" would incorrectly suppress today's occurrence
- * forever. This reset is display-time only (nothing is written back), and it
+ * A *recurring* dose that was ADMINISTERED also resets back to a fresh
+ * PENDING/OVERDUE view once its administered day has passed — otherwise
+ * "given yesterday" would incorrectly suppress today's occurrence forever.
+ * This reset is display-time only (nothing is written back), and it
  * doesn't lose history: the permanent compliance record lives in
  * `medication_evidence_log` (see [MedicationEvidenceEvent]), not in these
  * flat columns.
@@ -239,12 +229,6 @@ private fun MedicationEntry.withComputedStatus(): MedicationEntry {
             e = e.copy(
                 status = MedStatus.PENDING, administeredBy = "", administeredAt = null,
                 administeredScannedCode = "",
-            )
-        }
-        if (e.allotmentStatus == AllotmentStatus.ALLOTTED && e.allottedAt?.toLocalDate() != LocalDate.now()) {
-            e = e.copy(
-                allotmentStatus = AllotmentStatus.NOT_ALLOTTED, allottedById = "", allottedByName = "",
-                allottedAt = null, allotmentScannedCode = "",
             )
         }
     }
@@ -341,27 +325,6 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
                 onConflict = "medication_id,date"
                 ignoreDuplicates = true
             }
-        }
-    }
-    override suspend fun allotMedication(id: String, staffId: String, staffName: String, scannedCode: String) {
-        val med = client.postgrest.from(table).select { filter { eq("id", id) } }.decodeSingleOrNull<MedicationRow>()
-        client.postgrest.from(table).update(
-            mapOf(
-                "allotment_status" to AllotmentStatus.ALLOTTED.name,
-                "allotted_by_id" to staffId,
-                "allotted_by_name" to staffName,
-                "allotted_at" to LocalDateTime.now().toString(),
-                "allotment_scanned_code" to scannedCode,
-            )
-        ) { filter { eq("id", id) } }
-        if (med != null) {
-            client.postgrest.from(EVIDENCE_LOG_TABLE).insert(
-                MedicationEvidenceRow(
-                    id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
-                    kind = "ALLOTMENT", staffId = staffId, staffName = staffName,
-                    scannedCode = scannedCode, occurredAt = LocalDateTime.now().toString(),
-                )
-            )
         }
     }
     override suspend fun getEvidenceLog(): List<MedicationEvidenceEvent> =
@@ -669,68 +632,6 @@ class SupabaseApprovalRepository(private val client: SupabaseClient) : ApprovalR
     override suspend fun submitRequest(request: ApprovalRequest) {
         client.postgrest.from(table).insert(request.copy(id = newId()).toRow())
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Allotment Requests
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Serializable
-internal data class AllotmentRequestRow(
-    val id: String,
-    @SerialName("medication_entry_id") val medicationEntryId: String,
-    @SerialName("patient_id") val patientId: String,
-    @SerialName("patient_name") val patientName: String = "",
-    @SerialName("medicine_name") val medicineName: String = "",
-    val dose: String = "",
-    @SerialName("scheduled_time") val scheduledTime: String = LocalTime.now().toString(),
-    @SerialName("requested_by_id") val requestedById: String? = null,
-    @SerialName("requested_by_name") val requestedByName: String = "",
-    val status: String = "PENDING",
-    @SerialName("fulfilled_by_id") val fulfilledById: String? = null,
-    @SerialName("fulfilled_by_name") val fulfilledByName: String = "",
-    val timestamp: String = LocalDateTime.now().toString(),
-    @SerialName("fulfilled_at") val fulfilledAt: String? = null,
-)
-internal fun AllotmentRequestRow.toDomain() = AllotmentRequest(
-    id = id, medicationEntryId = medicationEntryId, patientId = patientId, patientName = patientName,
-    medicineName = medicineName, dose = dose, scheduledTime = parseTime(scheduledTime),
-    requestedById = requestedById ?: "", requestedByName = requestedByName,
-    status = runCatching { AllotmentRequestStatus.valueOf(status) }.getOrDefault(AllotmentRequestStatus.PENDING),
-    fulfilledById = fulfilledById ?: "", fulfilledByName = fulfilledByName,
-    timestamp = parseTimestamp(timestamp), fulfilledAt = parseTimestampOrNull(fulfilledAt),
-)
-internal fun AllotmentRequest.toRow() = AllotmentRequestRow(
-    id = id, medicationEntryId = medicationEntryId, patientId = patientId, patientName = patientName,
-    medicineName = medicineName, dose = dose, scheduledTime = scheduledTime.toString(),
-    requestedById = requestedById.ifBlank { null }, requestedByName = requestedByName, status = status.name,
-    fulfilledById = fulfilledById.ifBlank { null }, fulfilledByName = fulfilledByName,
-    timestamp = timestamp.toString(), fulfilledAt = fulfilledAt?.toString(),
-)
-
-class SupabaseAllotmentRequestRepository(private val client: SupabaseClient) : AllotmentRequestRepository {
-    private val table = "allotment_requests"
-    override suspend fun getAllRequests(): List<AllotmentRequest> =
-        client.postgrest.from(table).select().decodeList<AllotmentRequestRow>()
-            .map { it.toDomain() }.sortedByDescending { it.timestamp }
-    override suspend fun getPendingRequests(): List<AllotmentRequest> =
-        client.postgrest.from(table).select { filter { eq("status", AllotmentRequestStatus.PENDING.name) } }
-            .decodeList<AllotmentRequestRow>().map { it.toDomain() }.sortedByDescending { it.timestamp }
-    override suspend fun submitRequest(request: AllotmentRequest) {
-        client.postgrest.from(table).insert(request.copy(id = newId()).toRow())
-    }
-    override suspend fun fulfillRequest(id: String, staffId: String, staffName: String) {
-        client.postgrest.from(table).update(
-            mapOf(
-                "status" to AllotmentRequestStatus.FULFILLED.name,
-                "fulfilled_by_id" to staffId,
-                "fulfilled_by_name" to staffName,
-                "fulfilled_at" to LocalDateTime.now().toString(),
-            )
-        ) { filter { eq("id", id) } }
-    }
-    override suspend fun getByMedicationEntryId(medicationEntryId: String): AllotmentRequest? =
-        getPendingRequests().firstOrNull { it.medicationEntryId == medicationEntryId }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
