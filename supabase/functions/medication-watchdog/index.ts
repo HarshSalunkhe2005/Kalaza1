@@ -3,21 +3,17 @@
 // (or pg_cron), unlike send-push/cleanup-photos which are triggered by a
 // webhook/its own schedule respectively for different reasons.
 //
-// Three checkpoints per still-not-ADMINISTERED dose, each firing at most
-// once per day per dose (tracked via the *_sent_at timestamp columns added
-// to `medications`, compared by IST calendar date so a recurring dose's
-// checkpoints reset every day):
-//   - 15 min before the deadline  -> reminder to STAFF and SUPERVISOR
-//   - 5 min after the dose time   -> "not given yet" nudge to SUPERVISOR
-//   - 65 min after the dose time  -> missed (window closed +5) to SUPERVISOR and SUPER_ADMIN
-//
-// The 5-min tier used to target the restricted photo-audit-only ADMIN role;
-// that role was removed from the app entirely (only SUPER_ADMIN/STAFF/
-// SUPERVISOR remain), so it was silently notifying nobody — the insert
-// succeeded (Postgres never dropped the old enum label) but no staff row
-// has had that role in a long time, so no in-app notification and no push
-// ever reached anyone. Retargeted to SUPERVISOR, the closest existing role
-// to the original mid-tier-escalation intent.
+// Four checkpoints per still-not-ADMINISTERED dose, each firing at most once
+// per day per dose (tracked via the *_sent_at timestamp columns on
+// `medications`, compared by IST calendar date so a recurring dose's
+// checkpoints reset every day). The 1-hour giving window (scheduled time to
+// +60 min, see DOSE_WINDOW_MINUTES on the Kotlin side) is unchanged by any of
+// this — these are early heads-up alerts, not the dose's actual status:
+//   - 15 min before  -> reminder to STAFF
+//   - at the dose time (0 to +5 min)   -> "due now" to SUPERVISOR
+//   - 15 min after   -> "not given yet" heads-up to SUPER_ADMIN (incl. Admins)
+//   - 65 min after (window closed +5)  -> actual Missed alert to SUPERVISOR
+//     and SUPER_ADMIN, plus the durable audit/history record
 //
 // All times in `medications` (schedule_time) are wall-clock IST (the app is
 // built for a facility in Pune), so this function does its date/time math
@@ -63,7 +59,7 @@ Deno.serve(async () => {
 
   const { data: meds, error } = await supabase
     .from("medications")
-    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, reminder_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
+    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, reminder_sent_at, due_now_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
     .in("status", ["PENDING", "OVERDUE"]);
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
@@ -72,7 +68,7 @@ Deno.serve(async () => {
   const todayIsoDay = isoDayOfWeek(nowIstDate);
   const nowMs = Date.now();
 
-  let reminders = 0, adminAlerts = 0, escalations = 0;
+  let reminders = 0, dueNow = 0, adminAlerts = 0, escalations = 0;
 
   for (const med of meds ?? []) {
     const effectiveDate = med.is_recurring ? today : med.scheduled_date;
@@ -91,27 +87,30 @@ Deno.serve(async () => {
     const patientName = (med as unknown as { patients: { name: string } | null }).patients?.name ?? "Unknown patient";
 
     if (diffMinutes >= -15 && diffMinutes < 0 && !sentToday(med.reminder_sent_at, today)) {
-      await supabase.from("notifications").insert([
-        {
-          recipient_role: "STAFF", type: "MEDICATION_REMINDER",
-          title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due shortly`,
-          target_route: `patient/${med.patient_id}`,
-        },
-        {
-          recipient_role: "SUPERVISOR", type: "MEDICATION_REMINDER",
-          title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due shortly`,
-          target_route: `patient/${med.patient_id}`,
-        },
-      ]);
+      await supabase.from("notifications").insert({
+        recipient_role: "STAFF", type: "MEDICATION_REMINDER",
+        title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due shortly`,
+        target_route: `patient/${med.patient_id}`,
+      });
       await supabase.from("medications").update({ reminder_sent_at: new Date().toISOString() }).eq("id", med.id);
       reminders++;
     }
 
-    // The dose window is scheduled time -> +60 min. At +5 the supervisor gets a
-    // "still not given" nudge while it's still fixable.
-    if (diffMinutes >= 5 && diffMinutes < 65 && !sentToday(med.admin_alert_sent_at, today)) {
+    if (diffMinutes >= 0 && diffMinutes < 5 && !sentToday(med.due_now_sent_at, today)) {
       await supabase.from("notifications").insert({
-        recipient_role: "SUPERVISOR", type: "MEDICATION_MISSED_ALERT",
+        recipient_role: "SUPERVISOR", type: "MEDICATION_REMINDER",
+        title: "Dose due now", message: `${med.medicine_name} for ${patientName} is due now`,
+        target_route: `patient/${med.patient_id}`,
+      });
+      await supabase.from("medications").update({ due_now_sent_at: new Date().toISOString() }).eq("id", med.id);
+      dueNow++;
+    }
+
+    // Window is scheduled time -> +60 min, so this +15 alert is a heads-up, not the
+    // actual Missed status (that's the +65 checkpoint below, once the window closes).
+    if (diffMinutes >= 15 && diffMinutes < 65 && !sentToday(med.admin_alert_sent_at, today)) {
+      await supabase.from("notifications").insert({
+        recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ALERT",
         title: "Dose not given yet", message: `${med.medicine_name} for ${patientName} has not been given yet`,
         target_route: `patient/${med.patient_id}`,
       });
@@ -157,5 +156,5 @@ Deno.serve(async () => {
     }
   }
 
-  return new Response(JSON.stringify({ reminders, adminAlerts, escalations }), { status: 200 });
+  return new Response(JSON.stringify({ reminders, dueNow, adminAlerts, escalations }), { status: 200 });
 });

@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
                             runCatching {
                                 val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
                                 app.staffRepository.updateFcmToken(staff.id, token)
-                            }.onFailure { android.util.Log.w("KalazaPush", "FCM token sync failed", it) }
+                            }.onFailure { AppErrors.report("register this device for notifications", it) }
                         }
                         sessionReady = true
                     }
