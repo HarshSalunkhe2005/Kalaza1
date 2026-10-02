@@ -154,9 +154,9 @@ fun MarTable(
         ConfirmDialog(
             title = if (isDirectDelete) "Delete Medication" else "Request Deletion",
             message = if (isDirectDelete)
-                "Delete ${entry.medicineName} (${entry.dose}) from this patient's MAR? This cannot be undone."
+                "Delete ${entry.medicineName} (${entry.dose}) from this patient's Med tab? This cannot be undone."
             else
-                "Ask a Super Admin to delete ${entry.medicineName} (${entry.dose})? It stays on the MAR until they approve.",
+                "Ask a Super Admin to delete ${entry.medicineName} (${entry.dose})? It stays on the Med tab until they approve.",
             confirmText = if (isDirectDelete) "Delete" else "Send Request",
             isDestructive = isDirectDelete,
             onConfirm = {

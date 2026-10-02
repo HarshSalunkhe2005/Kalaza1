@@ -16,6 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -44,6 +46,7 @@ data class StaffRow(
     val role: String = "STAFF",
     val phone: String = "",
     @SerialName("is_active") val isActive: Boolean = true,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("joined_date") val joinedDate: String = LocalDate.now().toString(),
     @SerialName("auth_email") val authEmail: String = "",
     @SerialName("fcm_token") val fcmToken: String = "",
@@ -63,6 +66,7 @@ private data class StaffInsertRow(
     val role: String = "STAFF",
     val phone: String = "",
     @SerialName("is_active") val isActive: Boolean = true,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("joined_date") val joinedDate: String = LocalDate.now().toString(),
     @SerialName("auth_email") val authEmail: String = "",
     @SerialName("fcm_token") val fcmToken: String = "",

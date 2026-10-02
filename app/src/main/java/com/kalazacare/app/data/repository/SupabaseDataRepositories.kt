@@ -65,6 +65,7 @@ internal data class PatientRow(
     val allergies: String = "",
     @SerialName("emergency_contact") val emergencyContact: String = "",
     @SerialName("emergency_phone") val emergencyPhone: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("admission_date") val admissionDate: String = LocalDate.now().toString(),
     @SerialName("is_archived")
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
@@ -123,7 +124,9 @@ class SupabasePatientRepository(private val client: SupabaseClient) : PatientRep
 internal data class VitalRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val date: String = LocalDate.now().toString(),
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val time: String = LocalTime.now().toString(),
     val pulse: String = "", val bp: String = "", val spo2: String = "", val temperature: String = "",
     @SerialName("sugar_fasting") val sugarFasting: String = "",
@@ -178,6 +181,7 @@ internal data class MedicationRow(
     // @EncodeDefault(ALWAYS) forces it into every request regardless.
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val tag: String = "MORNING",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("scheduled_date") val scheduledDate: String = LocalDate.now().toString(),
     @SerialName("is_recurring") val isRecurring: Boolean = true,
     // Comma-separated ISO day-of-week numbers (1=Mon..7=Sun), e.g. "1,3,5".
@@ -422,7 +426,9 @@ internal fun MedicationEvidenceRow.toDomain() = MedicationEvidenceEvent(
 internal data class UtilityRecordRow(
     val id: String,
     @SerialName("patient_id") val patientId: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val date: String = LocalDate.now().toString(),
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val time: String = LocalTime.now().toString(),
     val quantities: Map<String, Int> = emptyMap(),
     @SerialName("issued_to_caregiver") val issuedToCaregiver: String = "",
@@ -493,7 +499,9 @@ internal data class DoctorVisitRow(
     @SerialName("patient_id") val patientId: String,
     @SerialName("doctor_name") val doctorName: String = "",
     val specialty: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val date: String = LocalDate.now().toString(),
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val time: String = LocalTime.now().toString(),
     val notes: String = "",
     @SerialName("next_visit_date") val nextVisitDate: String? = null,

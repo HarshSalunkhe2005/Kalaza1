@@ -383,6 +383,15 @@ Backend integration, real authentication, push notification delivery, real-time 
 2. Any patient's Utility tab immediately reflects the change: the "Add Utility Record" dialog renders one quantity field per active item, and the table gains/loses that column — no other code path needs updating.
 3. A `UtilityRecord` stores quantities as a `Map<UtilityItem.id, Int>` rather than fixed fields, which is what makes this possible.
 
+### Security hardening + regression pass (2026-10-03)
+- DB function grants tightened (migration `security_hardening_function_grants_search_path_login_lookup`): RLS helper functions (`is_super_admin`, `is_active_staff`, `is_supervisor_or_above`, `current_staff_role`) are executable by signed-in users only (no anon); the six trigger functions are not API-callable by anyone; the five guard functions have `search_path` pinned. `enforce_allowed_columns` must stay executable by `authenticated` (called from inside the guards as the invoking user).
+- `staff_login_lookup` must stay anon-callable (login resolves Name -> email before sign-in) and must return the REAL staff `id` — the app reads its own staff row by that id right after sign-in. An all-zero id broke every login for a few minutes (fixed by `fix_staff_login_lookup_return_real_id`). It now only resolves ACTIVE accounts.
+- Leaked-password protection is a dashboard switch (Auth -> Providers -> Password); it cannot be set via SQL.
+- Date bug fixed: supabase-kt omits a field equal to its Kotlin default (`encodeDefaults=false`), so a record whose `date` was "today" was sent WITHOUT a date and Postgres filled `CURRENT_DATE` (UTC) — records made 00:00-05:30 IST were stamped the previous day. `date`/`time`/`scheduled_date`/`admission_date`/`joined_date` on the write rows now carry `@EncodeDefault(ALWAYS)`. Records written earlier in that window stay as they were.
+- Utility "Issued By" now fills with the logged-in Supervisor's (or Admin's) name.
+- Cold start always shows the Login screen (session is restored in the background only for FCM/deep links) — existing behaviour, not a bug.
+- Known cosmetic: Config "Joined" date for a brand-new account can show the previous day for the same 00:00-05:30 IST reason (`joined_date` written before this fix).
+
 ### Notification Workflow
 1. A real event happens (staff submits an edit request, Super Admin approves/rejects one, a daily-task watchdog alert fires, a dose's deadline is approaching/missed).
 2. The relevant ViewModel (or Edge Function) calls `NotificationRepository.add(...)`/inserts into `notifications` with either a specific `recipientStaffId` or a broadcast `recipientRole`.
