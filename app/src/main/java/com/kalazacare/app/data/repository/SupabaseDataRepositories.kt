@@ -12,6 +12,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.UUID
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -688,17 +689,31 @@ internal fun AppNotification.toRow() = NotificationRow(
     isRead = isRead, targetRoute = targetRoute,
 )
 
+/**
+ * Only this many days of notifications are listed/counted. The watchdogs generate ~40 a day for the Supervisor
+ * alone (due/missed doses, vitals, utilities), so a longer window leaves the badge permanently at "99+" and the
+ * list useless; 3 days still covers a weekend, and anything older lives on in the Audit Log / Med History.
+ */
+internal const val NOTIFICATION_WINDOW_DAYS = 3L
+
+/** UTC "Z" form on purpose: a "+05:30" offset in a query string would have its "+" read as a space. */
+private fun notificationCutoffIso(): String = OffsetDateTime.now(ZoneOffset.UTC).minusDays(NOTIFICATION_WINDOW_DAYS).toString()
+
 class SupabaseNotificationRepository(private val client: SupabaseClient) : NotificationRepository {
     private val table = "notifications"
     override suspend fun getForRecipient(staffId: String, role: UserRole): List<AppNotification> =
         client.postgrest.from(table).select {
-            filter { or { eq("recipient_staff_id", staffId); eq("recipient_role", role.notificationRole().name) } }
+            filter {
+                or { eq("recipient_staff_id", staffId); eq("recipient_role", role.notificationRole().name) }
+                gte("timestamp", notificationCutoffIso())
+            }
         }.decodeList<NotificationRow>().map { it.toDomain() }.sortedByDescending { it.timestamp }
     override suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int =
         client.postgrest.from(table).select {
             filter {
                 or { eq("recipient_staff_id", staffId); eq("recipient_role", role.notificationRole().name) }
                 eq("is_read", false)
+                gte("timestamp", notificationCutoffIso())
             }
         }.decodeList<NotificationRow>().size
     override suspend fun add(notification: AppNotification) {

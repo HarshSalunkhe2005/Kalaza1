@@ -35,6 +35,7 @@ fun DashboardScreen(
     val patients by viewModel.patients.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val pendingMeds by viewModel.pendingMeds.collectAsState()
+    val missedMeds by viewModel.missedMeds.collectAsState()
     val pendingApprovals by viewModel.pendingApprovals.collectAsState()
     val totalPatients by viewModel.totalPatients.collectAsState()
     val showArchived by viewModel.showArchived.collectAsState()
@@ -87,6 +88,7 @@ fun DashboardScreen(
             ) {
                 item { StatCard("Total Patients", totalPatients.toString()) }
                 item { StatCard("Pending Meds", pendingMeds.toString(), isAlert = pendingMeds > 0) }
+                item { StatCard("Missed Meds", missedMeds.toString(), isAlert = missedMeds > 0) }
                 item { StatCard("Pending Approvals", pendingApprovals.toString(), isAlert = pendingApprovals > 0) }
             }
 

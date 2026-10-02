@@ -160,6 +160,8 @@ class DashboardViewModel(
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
     private val _pendingMeds   = MutableStateFlow(0)
     val pendingMeds: StateFlow<Int> = _pendingMeds.asStateFlow()
+    private val _missedMeds    = MutableStateFlow(0)
+    val missedMeds: StateFlow<Int> = _missedMeds.asStateFlow()
     private val _pendingApprovals = MutableStateFlow(0)
     val pendingApprovals: StateFlow<Int> = _pendingApprovals.asStateFlow()
     private val _totalPatients = MutableStateFlow(0)
@@ -184,8 +186,9 @@ class DashboardViewModel(
             _pendingApprovals.value = approvalRepo.getPendingRequests().size
             // One query across every patient instead of looping per patient -- was N
             // sequential round-trips, now a fixed 1 regardless of patient count.
-            _pendingMeds.value = medRepo.getMedicationsForDate(LocalDate.now())
-                .count { it.status == MedStatus.PENDING || it.status == MedStatus.OVERDUE }
+            val todaysMeds = medRepo.getMedicationsForDate(LocalDate.now())
+            _pendingMeds.value = todaysMeds.count { it.status == MedStatus.PENDING }
+            _missedMeds.value = todaysMeds.count { it.status == MedStatus.OVERDUE }
             applyFilters()
             _isLoading.value = false
         }

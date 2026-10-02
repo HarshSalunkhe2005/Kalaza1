@@ -39,6 +39,7 @@ fun SuperAdminOverviewScreen(
 ) {
     val totalPatients by dashboardViewModel.totalPatients.collectAsState()
     val pendingMedsCount by dashboardViewModel.pendingMeds.collectAsState()
+    val missedMedsCount by dashboardViewModel.missedMeds.collectAsState()
     val pendingApprovalsCount by dashboardViewModel.pendingApprovals.collectAsState()
     val patientSummaries by dailySummaryViewModel.patientSummaries.collectAsState()
     val pendingApprovals by dailySummaryViewModel.pendingApprovals.collectAsState()
@@ -60,12 +61,19 @@ fun SuperAdminOverviewScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OverviewStatCard(modifier = Modifier.weight(1f), title = "Total Patients", value = totalPatients.toString())
                     OverviewStatCard(
+                        modifier = Modifier.weight(1f), title = "Pending Approvals", value = pendingApprovalsCount.toString(),
+                        isAlert = pendingApprovalsCount > 0,
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OverviewStatCard(
                         modifier = Modifier.weight(1f), title = "Pending Meds", value = pendingMedsCount.toString(),
                         isAlert = pendingMedsCount > 0,
                     )
                     OverviewStatCard(
-                        modifier = Modifier.weight(1f), title = "Pending Approvals", value = pendingApprovalsCount.toString(),
-                        isAlert = pendingApprovalsCount > 0,
+                        modifier = Modifier.weight(1f), title = "Missed Meds", value = missedMedsCount.toString(),
+                        isAlert = missedMedsCount > 0,
                     )
                 }
             }

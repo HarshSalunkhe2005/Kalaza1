@@ -479,8 +479,10 @@ class OfflineNotificationRepository(
             list.forEach { cache.upsertRow(Tables.NOTIFICATIONS, it.id, it.toRow()) }
             return list
         }
+        val cutoff = java.time.LocalDateTime.now().minusDays(NOTIFICATION_WINDOW_DAYS)
         return cache.readAllRows<NotificationRow>(Tables.NOTIFICATIONS).map { it.toDomain() }
-            .filter { it.recipientStaffId == staffId || it.recipientRole == role.notificationRole() }.sortedByDescending { it.timestamp }
+            .filter { it.recipientStaffId == staffId || it.recipientRole == role.notificationRole() }
+            .filter { it.timestamp.isAfter(cutoff) }.sortedByDescending { it.timestamp }
     }
 
     override suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int =
