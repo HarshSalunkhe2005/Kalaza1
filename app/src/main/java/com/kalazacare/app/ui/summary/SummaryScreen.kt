@@ -128,10 +128,13 @@ fun SummaryScreen(
                 Spacer(Modifier.height(16.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     StatCard("Meds Pending",  stats.medsPending.toString(),      Modifier.weight(1f), isAlert = stats.medsPending > 0)
-                    StatCard("Utility Logs",  stats.utilityLogs.toString(),      Modifier.weight(1f))
+                    StatCard("Meds Missed",   stats.medsMissed.toString(),       Modifier.weight(1f), isAlert = stats.medsMissed > 0)
                 }
                 Spacer(Modifier.height(16.dp))
-                StatCard("Approvals Pending", stats.pendingApprovals.toString(), Modifier.fillMaxWidth(), isAlert = stats.pendingApprovals > 0)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    StatCard("Utility Logs",  stats.utilityLogs.toString(),      Modifier.weight(1f))
+                    StatCard("Approvals Pending", stats.pendingApprovals.toString(), Modifier.weight(1f), isAlert = stats.pendingApprovals > 0)
+                }
             }
 
             HorizontalDivider()
@@ -226,7 +229,11 @@ private fun medicationLineForDay(
         administeredEvidence != null ->
             "$base — ADMINISTERED (${DateUtils.formatTime(administeredEvidence.occurredAt.toLocalTime())})"
         date.isAfter(LocalDate.now()) -> "$base — Scheduled"
-        date.isEqual(LocalDate.now()) -> "$base — ${m.status.name}"
+        date.isEqual(LocalDate.now()) -> "$base — " + when (m.status) {
+            com.kalazacare.app.data.model.MedStatus.OVERDUE -> "Missed"
+            com.kalazacare.app.data.model.MedStatus.PENDING -> "Pending"
+            com.kalazacare.app.data.model.MedStatus.ADMINISTERED -> "Given"
+        }
         else -> "$base — Not Given"
     }
 }

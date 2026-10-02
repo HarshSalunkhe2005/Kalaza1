@@ -1479,6 +1479,7 @@ data class SummaryStats(
     val vitalsRecorded: Int = 0,
     val medsAdministered: Int = 0,
     val medsPending: Int = 0,
+    val medsMissed: Int = 0,
     val utilityLogs: Int = 0,
     val pendingApprovals: Int = 0,
 )
@@ -1527,13 +1528,19 @@ class SummaryViewModel(
             _endDate.value = to
             val pts = patientRepo.getAllPatients()
             _patients.value = pts
-            val allMeds    = pts.flatMap { medRepo.getMedicationsForPatient(it.id).filter { m -> m.scheduledDate in from..to } }
+            // Same predicate as buildRangeReport: a recurring dose's stored scheduledDate is just the day it
+            // was created, so it applies to every day from then on; only a one-off dose is tied to its date.
+            val allMeds    = pts.flatMap {
+                medRepo.getMedicationsForPatient(it.id)
+                    .filter { m -> if (m.isRecurring) !m.scheduledDate.isAfter(to) else m.scheduledDate in from..to }
+            }
             val allVitals  = pts.flatMap { vitalsRepo.getVitalsForPatient(it.id).filter { v -> v.date in from..to } }
             val allUtility = pts.sumOf { utilityRepo.getUtilityForPatient(it.id).count { u -> u.date in from..to } }
             _stats.value = SummaryStats(
                 vitalsRecorded   = allVitals.size,
                 medsAdministered = allMeds.count { it.status == MedStatus.ADMINISTERED },
-                medsPending      = allMeds.count { it.status == MedStatus.PENDING || it.status == MedStatus.OVERDUE },
+                medsPending      = allMeds.count { it.status == MedStatus.PENDING },
+                medsMissed       = allMeds.count { it.status == MedStatus.OVERDUE },
                 utilityLogs      = allUtility,
                 pendingApprovals = approvalRepo.getPendingRequests().size
             )

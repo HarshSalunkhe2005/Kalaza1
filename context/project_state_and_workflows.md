@@ -18,6 +18,7 @@ Found by walking every workflow on an emulator as Super Admin and Supervisor:
 - **Timestamp convention fixed** — the app used to write local IST wall-clock strings with no offset (stored as UTC, 5h30m late) and read by dropping the offset, so server-written times (Edge Functions) showed 5h30m early. Now: writes use `nowIso()`/`toIso()` (offset-aware), reads convert to the device zone. Legacy app-written rows need the ONE-TIME script `supabase/one_time/normalize_client_timestamps.sql` (run once, when installing the new build).
 - `ApprovalViewModel.approve()` now applies the change BEFORE marking the request approved (a failed apply no longer leaves a false "approved").
 - Approval Queue cards name the tab ("Medicine • Add/Edit/Delete"), render add-requests readably, and approve/reject notifications/audit entries are entity-specific.
+- **Summary tab stats were wrong** — headline Meds Given/Pending filtered every medication by its stored creation date, ignoring recurring doses (so they read 0 on any day but the creation day). Now uses the same recurring-aware predicate as the Excel export; "Meds Pending" and a new "Meds Missed" are counted separately, and the report prints "Missed/Pending/Given" instead of raw enum names.
 - Smaller: greeting by time of day, 2-letter profile avatar, "99+" bell badge, `+` icon on Add FABs, bottom padding under the Med list, wider Vitals/Utility Time columns, singular "1 min ago", honest wording on a Supervisor's delete request.
 
 ## Technology Stack
