@@ -1044,7 +1044,7 @@ private fun AddUtilityDialog(
                             quantities = quantities.mapValues { it.value.toIntOrNull() ?: 0 }
                                 .filterValues { it > 0 },
                             issuedToCaregiver = SessionManager.getCurrentStaffName(),
-                            issuedBySupervisor = if (SessionManager.isAdmin()) SessionManager.getCurrentStaffName() else "",
+                            issuedBySupervisor = if (SessionManager.isAdmin() || SessionManager.isSupervisor()) SessionManager.getCurrentStaffName() else "",
                         )
                     )
                 },
