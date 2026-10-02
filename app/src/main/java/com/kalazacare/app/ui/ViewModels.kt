@@ -1214,7 +1214,8 @@ class ApprovalViewModel(
                 return@safeLaunch
             }
 
-            repo.approve(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName())
+            // Apply first, mark approved after: if the underlying write throws (e.g. a DB
+            // constraint), the request must stay pending instead of falsely reading "approved".
             when (request.entityType) {
                 ApprovalEntityType.PATIENT -> {
                     val patient = patientRepo.getPatientById(request.patientId)
@@ -1267,43 +1268,59 @@ class ApprovalViewModel(
                     }
                 }
             }
+            repo.approve(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName())
             auditRepo.addLog(AuditLogEntry(
-                action = "Edit Request Approved",
+                action = "${request.label()} Request Approved",
                 performedById = SessionManager.getCurrentStaffId(),
                 performedByName = SessionManager.getCurrentStaffName(),
                 targetPatientId = request.patientId,
                 targetPatientName = request.patientName,
-                details = "Approved change to ${request.fieldChanged} requested by ${request.requestedByName}",
+                details = "Approved ${request.summary()} requested by ${request.requestedByName}",
                 iconName = "check_circle",
             ))
             notificationRepo.add(AppNotification(
                 recipientStaffId = request.requestedById,
                 type = NotificationType.APPROVAL_APPROVED,
-                title = "Edit Request Approved",
-                message = "Your ${request.fieldChanged} change for ${request.patientName} was approved",
+                title = "${request.label()} Request Approved",
+                message = "Your ${request.summary()} for ${request.patientName} was approved",
                 targetRoute = "patient/${request.patientId}?tab=${request.entityType.profileTabIndex()}",
             ))
             load()
         }
     }
 
+    // "Medicine Add", "Vitals Edit", "Utility Delete" — names the tab a request came from.
+    private fun ApprovalRequest.label(): String = "${entityType.displayLabel()} " + when (action) {
+        ApprovalAction.ADD -> "Add"
+        ApprovalAction.EDIT -> "Edit"
+        ApprovalAction.DELETE -> "Delete"
+    }
+
+    private fun ApprovalRequest.summary(): String = when (action) {
+        ApprovalAction.ADD -> "request to add " +
+            (runCatching { syncJson.decodeFromString<NewMedicationPayload>(newValue).medicineName }.getOrNull()?.takeIf { it.isNotBlank() } ?: "a medication")
+        ApprovalAction.DELETE -> "request to delete " +
+            (if (entityType == ApprovalEntityType.MEDICATION && oldValue.isNotBlank()) oldValue else "this ${fieldChanged.lowercase()}")
+        ApprovalAction.EDIT -> "$fieldChanged change"
+    }
+
     /** Auto-rejects a request that can no longer be safely applied, with a system reason. */
     private suspend fun rejectStale(request: ApprovalRequest, reason: String) {
         repo.reject(request.id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName(), reason)
         auditRepo.addLog(AuditLogEntry(
-            action = "Edit Request Auto-Rejected",
+            action = "${request.label()} Request Auto-Rejected",
             performedById = SessionManager.getCurrentStaffId(),
             performedByName = SessionManager.getCurrentStaffName(),
             targetPatientId = request.patientId,
             targetPatientName = request.patientName,
-            details = "Could not approve change to ${request.fieldChanged} — $reason",
+            details = "Could not approve ${request.summary()} — $reason",
             iconName = "cancel",
         ))
         notificationRepo.add(AppNotification(
             recipientStaffId = request.requestedById,
             type = NotificationType.APPROVAL_REJECTED,
-            title = "Edit Request Could Not Be Applied",
-            message = "Your ${request.fieldChanged} change for ${request.patientName} could not be applied — $reason",
+            title = "${request.label()} Request Could Not Be Applied",
+            message = "Your ${request.summary()} for ${request.patientName} could not be applied — $reason",
             targetRoute = "patient/${request.patientId}?tab=${request.entityType.profileTabIndex()}",
         ))
         load()
@@ -1314,19 +1331,19 @@ class ApprovalViewModel(
             val request = repo.getRequestById(id) ?: return@safeLaunch
             repo.reject(id, SessionManager.getCurrentStaffId(), SessionManager.getCurrentStaffName(), reason)
             auditRepo.addLog(AuditLogEntry(
-                action = "Edit Request Rejected",
+                action = "${request.label()} Request Rejected",
                 performedById = SessionManager.getCurrentStaffId(),
                 performedByName = SessionManager.getCurrentStaffName(),
                 targetPatientId = request.patientId,
                 targetPatientName = request.patientName,
-                details = "Rejected change to ${request.fieldChanged} — $reason",
+                details = "Rejected ${request.summary()} — $reason",
                 iconName = "cancel",
             ))
             notificationRepo.add(AppNotification(
                 recipientStaffId = request.requestedById,
                 type = NotificationType.APPROVAL_REJECTED,
-                title = "Edit Request Rejected",
-                message = "Your ${request.fieldChanged} change for ${request.patientName} was rejected — $reason",
+                title = "${request.label()} Request Rejected",
+                message = "Your ${request.summary()} for ${request.patientName} was rejected — $reason",
                 targetRoute = "patient/${request.patientId}?tab=${request.entityType.profileTabIndex()}",
             ))
             load()

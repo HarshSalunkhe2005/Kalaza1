@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Edit
@@ -40,6 +41,7 @@ import com.kalazacare.app.ui.utility.UtilityTable
 import com.kalazacare.app.ui.vitals.VitalsTable
 import com.kalazacare.app.util.DateUtils
 import com.kalazacare.app.util.SessionManager
+import com.kalazacare.app.util.toInitials
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -320,7 +322,7 @@ private fun PatientHeaderCard(patient: com.kalazacare.app.data.model.Patient) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = patient.name.take(1).uppercase(),
+                    text = patient.name.toInitials(),
                     style = MaterialTheme.typography.headlineMedium,
                     color = KalazaRed,
                     fontWeight = FontWeight.Bold,
@@ -449,7 +451,7 @@ private fun VitalsTabContent(
             containerColor = KalazaRed,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
-            Icon(Icons.Default.Edit, "Add Vital")
+            Icon(Icons.Default.Add, "Add Vital")
         }
     }
 
@@ -686,7 +688,7 @@ private fun MarTabContent(
                         containerColor = KalazaRed,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     ) {
-                        Icon(Icons.Default.Edit, "Add Medication")
+                        Icon(Icons.Default.Add, "Add Medication")
                     }
                 }
             } else {
@@ -914,7 +916,7 @@ private fun UtilityTabContent(
             containerColor = KalazaRed,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
-            Icon(Icons.Default.Edit, "Add Utility Record")
+            Icon(Icons.Default.Add, "Add Utility Record")
         }
     }
 

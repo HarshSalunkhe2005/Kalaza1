@@ -14,9 +14,9 @@ fun LocalDateTime.timeAgo(): String {
     val now = LocalDateTime.now()
     val minutes = ChronoUnit.MINUTES.between(this, now)
     if (minutes < 1) return "Just now"
-    if (minutes < 60) return "$minutes mins ago"
+    if (minutes < 60) return if (minutes == 1L) "1 min ago" else "$minutes mins ago"
     val hours = ChronoUnit.HOURS.between(this, now)
-    if (hours < 24) return "$hours hours ago"
+    if (hours < 24) return if (hours == 1L) "1 hour ago" else "$hours hours ago"
     val days = ChronoUnit.DAYS.between(this, now)
-    return "$days days ago"
+    return if (days == 1L) "1 day ago" else "$days days ago"
 }

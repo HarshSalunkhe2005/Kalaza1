@@ -158,7 +158,7 @@ fun NotificationBell(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError,
                     ) {
-                        Text(count.toString())
+                        Text(if (count > 99) "99+" else count.toString())
                     }
                 }
             }

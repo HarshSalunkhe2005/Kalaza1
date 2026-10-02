@@ -45,7 +45,7 @@ fun VitalsTable(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HeaderCell("Date", width = 100.dp)
-            HeaderCell("Time", width = 80.dp)
+            HeaderCell("Time", width = 112.dp)
             HeaderCell("Pulse", width = 80.dp)
             HeaderCell("BP", width = 100.dp)
             HeaderCell("SpO2", width = 80.dp)
@@ -79,7 +79,7 @@ fun VitalsTable(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     DataCell(DateUtils.formatDate(record.date), width = 100.dp)
-                    DataCell(DateUtils.formatTime(record.time), width = 80.dp)
+                    DataCell(DateUtils.formatTime(record.time), width = 112.dp)
                     DataCell(record.pulse, width = 80.dp)
                     DataCell(record.bp, width = 100.dp)
                     DataCell(record.spo2, width = 80.dp)

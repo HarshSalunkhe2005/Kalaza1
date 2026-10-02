@@ -56,7 +56,8 @@ fun MarTable(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        // Extra bottom space so the Add button never covers the last card's actions.
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(medications) { entry ->
@@ -148,11 +149,16 @@ fun MarTable(
     }
 
     deleteTarget?.let { entry ->
+        // A Supervisor's delete only submits a request for Super Admin approval — don't claim it's final.
+        val isDirectDelete = SessionManager.isAdmin()
         ConfirmDialog(
-            title = "Delete Medication",
-            message = "Delete ${entry.medicineName} (${entry.dose}) from this patient's MAR? This cannot be undone.",
-            confirmText = "Delete",
-            isDestructive = true,
+            title = if (isDirectDelete) "Delete Medication" else "Request Deletion",
+            message = if (isDirectDelete)
+                "Delete ${entry.medicineName} (${entry.dose}) from this patient's MAR? This cannot be undone."
+            else
+                "Ask a Super Admin to delete ${entry.medicineName} (${entry.dose})? It stays on the MAR until they approve.",
+            confirmText = if (isDirectDelete) "Delete" else "Send Request",
+            isDestructive = isDirectDelete,
             onConfirm = {
                 onDeleteMedication?.invoke(entry)
                 deleteTarget = null

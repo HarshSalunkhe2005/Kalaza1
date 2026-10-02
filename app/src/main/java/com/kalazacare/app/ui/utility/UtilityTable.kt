@@ -54,7 +54,7 @@ fun UtilityTable(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HeaderCell("Date", width = 100.dp)
-            HeaderCell("Time", width = 80.dp)
+            HeaderCell("Time", width = 112.dp)
             items.forEach { item -> HeaderCell(item.name, width = 110.dp) }
             HeaderCell("Issued To", width = 120.dp)
             HeaderCell("Issued By", width = 120.dp)
@@ -86,7 +86,7 @@ fun UtilityTable(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     DataCell(DateUtils.formatDate(record.date), width = 100.dp)
-                    DataCell(DateUtils.formatTime(record.time), width = 80.dp)
+                    DataCell(DateUtils.formatTime(record.time), width = 112.dp)
                     items.forEach { item ->
                         val qty = record.quantities[item.id] ?: 0
                         DataCell(if (qty > 0) qty.toString() else "-", width = 110.dp)

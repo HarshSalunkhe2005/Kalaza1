@@ -72,7 +72,7 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Good morning, ${SessionManager.getCurrentStaffName()}",
+                text = "${greetingForNow()}, ${SessionManager.getCurrentStaffName()}",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -189,4 +189,11 @@ private fun StatCard(title: String, value: String, isAlert: Boolean = false) {
             )
         }
     }
+}
+
+private fun greetingForNow(): String = when (java.time.LocalTime.now().hour) {
+    in 5..11 -> "Good morning"
+    in 12..16 -> "Good afternoon"
+    in 17..20 -> "Good evening"
+    else -> "Hello"
 }

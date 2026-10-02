@@ -11,6 +11,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.util.UUID
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,11 +24,19 @@ import java.util.UUID
 private fun parseDate(s: String): LocalDate = runCatching { LocalDate.parse(s) }.getOrDefault(LocalDate.now())
 private fun parseDateOrNull(s: String?): LocalDate? = s?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 private fun parseTime(s: String): LocalTime = runCatching { LocalTime.parse(s) }.getOrDefault(LocalTime.now())
-private fun parseTimestamp(s: String): LocalDateTime = runCatching { OffsetDateTime.parse(s).toLocalDateTime() }
-    .recoverCatching { LocalDateTime.parse(s) }.getOrDefault(LocalDateTime.now())
+// timestamptz columns come back with an explicit offset (usually +00:00): convert to the device's
+// zone, rather than just dropping the offset, so a server-written time (Edge Functions, now()
+// defaults) and an app-written one both display as the same real wall-clock time.
+private fun parseTimestamp(s: String): LocalDateTime =
+    runCatching { OffsetDateTime.parse(s).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime() }
+        .recoverCatching { LocalDateTime.parse(s) }.getOrDefault(LocalDateTime.now())
 private fun parseTimestampOrNull(s: String?): LocalDateTime? = s?.let { str ->
-    runCatching { OffsetDateTime.parse(str).toLocalDateTime() }.recoverCatching { LocalDateTime.parse(str) }.getOrNull()
+    runCatching { OffsetDateTime.parse(str).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime() }
+        .recoverCatching { LocalDateTime.parse(str) }.getOrNull()
 }
+/** "Now" as an ISO string WITH offset — a bare LocalDateTime string gets read by Postgres as UTC, shifting every time by the device's UTC offset. */
+internal fun nowIso(): String = OffsetDateTime.now().toString()
+internal fun LocalDateTime.toIso(): String = atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
 private fun newId() = UUID.randomUUID().toString()
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -183,6 +192,8 @@ internal data class MedicationRow(
     @SerialName("administered_at") val administeredAt: String? = null,
     val notes: String = "",
     @SerialName("administered_scanned_code") val administeredScannedCode: String = "",
+    // Set by the DB default on insert; null here so it's never sent (and never overwritten on edit).
+    @SerialName("created_at") val createdAt: String? = null,
 )
 internal fun MedicationRow.toDomain(): MedicationEntry {
     val entry = MedicationEntry(
@@ -194,6 +205,7 @@ internal fun MedicationRow.toDomain(): MedicationEntry {
         status = runCatching { MedStatus.valueOf(status) }.getOrDefault(MedStatus.PENDING),
         administeredBy = administeredBy, administeredAt = parseTimestampOrNull(administeredAt), notes = notes,
         administeredScannedCode = administeredScannedCode,
+        createdAt = parseTimestampOrNull(createdAt),
     )
     return entry.withComputedStatus()
 }
@@ -202,7 +214,7 @@ internal fun MedicationEntry.toRow() = MedicationRow(
     scheduleTime = scheduleTime.toString(), tag = tag.name,
     scheduledDate = scheduledDate.toString(), isRecurring = isRecurring,
     recurringDays = recurringDays.sorted().joinToString(","), status = status.name,
-    administeredBy = administeredBy, administeredAt = administeredAt?.toString(), notes = notes,
+    administeredBy = administeredBy, administeredAt = administeredAt?.toIso(), notes = notes,
     administeredScannedCode = administeredScannedCode,
 )
 
@@ -236,7 +248,11 @@ private fun MedicationEntry.withComputedStatus(): MedicationEntry {
     val effectiveDate = if (e.isRecurring) LocalDate.now() else e.scheduledDate
     val scheduledAt = LocalDateTime.of(effectiveDate, e.scheduleTime)
     // Still PENDING through the whole giving window; only Missed once it has closed.
-    val computed = if (scheduledAt.plusMinutes(DOSE_WINDOW_MINUTES.toLong()).isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
+    val windowClosesAt = scheduledAt.plusMinutes(DOSE_WINDOW_MINUTES.toLong())
+    // A dose added after today's window already closed (e.g. an 8 AM dose entered at 6 PM) was never
+    // actually due today — it starts counting as Missed from its next occurrence, not retroactively.
+    val addedTooLate = e.createdAt?.isAfter(windowClosesAt) == true
+    val computed = if (!addedTooLate && windowClosesAt.isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
     return if (computed != e.status) e.copy(status = computed) else e
 }
 
@@ -299,7 +315,7 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
             mapOf(
                 "status" to MedStatus.ADMINISTERED.name,
                 "administered_by" to staffName,
-                "administered_at" to LocalDateTime.now().toString(),
+                "administered_at" to nowIso(),
                 "administered_scanned_code" to scannedCode,
             )
         ) { filter { eq("id", id) } }
@@ -308,7 +324,7 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
                 MedicationEvidenceRow(
                     id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
                     kind = "ADMINISTRATION", staffId = null, staffName = staffName,
-                    scannedCode = scannedCode, occurredAt = LocalDateTime.now().toString(),
+                    scannedCode = scannedCode, occurredAt = nowIso(),
                 )
             )
             // Per-day history ledger — the watchdog Edge Function writes the MISSED
@@ -319,7 +335,7 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
                     id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
                     dose = med.dose, tag = med.tag, date = LocalDate.now().toString(),
                     status = "ADMINISTERED", administeredBy = staffName,
-                    administeredAt = LocalDateTime.now().toString(), scannedCode = scannedCode,
+                    administeredAt = nowIso(), scannedCode = scannedCode,
                 )
             ) {
                 onConflict = "medication_id,date"
@@ -349,7 +365,9 @@ private const val HISTORY_LOG_TABLE = "medication_administration_log"
 @Serializable
 internal data class MedicationHistoryRow(
     val id: String,
-    @SerialName("medication_id") val medicationId: String,
+    // Nullable: deleting a medication keeps its history rows (they carry their own copy of the
+    // name/dose/tag), with this link set to NULL — see the on-delete-set-null migration.
+    @SerialName("medication_id") val medicationId: String? = null,
     @SerialName("patient_id") val patientId: String,
     @SerialName("medicine_name") val medicineName: String = "",
     val dose: String = "",
@@ -364,32 +382,33 @@ internal data class MedicationHistoryRow(
     @SerialName("scanned_code") val scannedCode: String = "",
 )
 internal fun MedicationHistoryRow.toDomain() = MedicationHistoryEntry(
-    id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName, dose = dose,
+    id = id, medicationId = medicationId ?: "", patientId = patientId, medicineName = medicineName, dose = dose,
     tag = runCatching { DoseTag.valueOf(tag) }.getOrDefault(DoseTag.MORNING),
     date = parseDate(date),
     status = runCatching { AdministrationOutcome.valueOf(status) }.getOrDefault(AdministrationOutcome.MISSED),
     administeredBy = administeredBy, administeredAt = parseTimestampOrNull(administeredAt), scannedCode = scannedCode,
 )
 internal fun MedicationHistoryEntry.toRow() = MedicationHistoryRow(
-    id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName, dose = dose,
+    id = id, medicationId = medicationId.ifBlank { null }, patientId = patientId, medicineName = medicineName, dose = dose,
     tag = tag.name, date = date.toString(), status = status.name,
-    administeredBy = administeredBy, administeredAt = administeredAt?.toString(), scannedCode = scannedCode,
+    administeredBy = administeredBy, administeredAt = administeredAt?.toIso(), scannedCode = scannedCode,
 )
 
 @Serializable
 internal data class MedicationEvidenceRow(
     val id: String,
-    @SerialName("medication_id") val medicationId: String,
+    // Nullable for the same reason as MedicationHistoryRow: the compliance record must outlive the medication.
+    @SerialName("medication_id") val medicationId: String? = null,
     @SerialName("patient_id") val patientId: String,
     @SerialName("medicine_name") val medicineName: String = "",
     val kind: String = "",
     @SerialName("staff_id") val staffId: String? = null,
     @SerialName("staff_name") val staffName: String = "",
     @SerialName("scanned_code") val scannedCode: String = "",
-    @SerialName("occurred_at") val occurredAt: String = LocalDateTime.now().toString(),
+    @SerialName("occurred_at") val occurredAt: String = nowIso(),
 )
 internal fun MedicationEvidenceRow.toDomain() = MedicationEvidenceEvent(
-    id = id, medicationId = medicationId, patientId = patientId, medicineName = medicineName,
+    id = id, medicationId = medicationId ?: "", patientId = patientId, medicineName = medicineName,
     kind = kind, staffId = staffId ?: "", staffName = staffName, scannedCode = scannedCode,
     occurredAt = parseTimestamp(occurredAt),
 )
@@ -521,7 +540,7 @@ internal data class CareNoteRow(
     @SerialName("patient_id") val patientId: String,
     @SerialName("staff_id") val staffId: String? = null,
     @SerialName("staff_name") val staffName: String = "",
-    val timestamp: String = LocalDateTime.now().toString(),
+    val timestamp: String = nowIso(),
     val note: String = "",
 )
 internal fun CareNoteRow.toDomain() = CareNote(
@@ -530,7 +549,7 @@ internal fun CareNoteRow.toDomain() = CareNote(
 )
 internal fun CareNote.toRow() = CareNoteRow(
     id = id, patientId = patientId, staffId = staffId.ifBlank { null }, staffName = staffName,
-    timestamp = timestamp.toString(), note = note,
+    timestamp = timestamp.toIso(), note = note,
 )
 
 class SupabaseCareNoteRepository(private val client: SupabaseClient) : CareNoteRepository {
@@ -576,7 +595,7 @@ internal data class ApprovalRequestRow(
     val status: String = "PENDING",
     @SerialName("reviewed_by_id") val reviewedById: String? = null,
     @SerialName("reviewed_by_name") val reviewedByName: String = "",
-    val timestamp: String = LocalDateTime.now().toString(),
+    val timestamp: String = nowIso(),
     @SerialName("reviewed_at") val reviewedAt: String? = null,
     @SerialName("rejection_reason") val rejectionReason: String = "",
 )
@@ -594,7 +613,7 @@ internal fun ApprovalRequest.toRow() = ApprovalRequestRow(
     patientId = patientId.ifBlank { null }, patientName = patientName, requestedById = requestedById.ifBlank { null },
     requestedByName = requestedByName, fieldChanged = fieldChanged, oldValue = oldValue, newValue = newValue,
     status = status.name, reviewedById = reviewedById.ifBlank { null }, reviewedByName = reviewedByName,
-    timestamp = timestamp.toString(), reviewedAt = reviewedAt?.toString(), rejectionReason = rejectionReason,
+    timestamp = timestamp.toIso(), reviewedAt = reviewedAt?.toIso(), rejectionReason = rejectionReason,
 )
 
 class SupabaseApprovalRepository(private val client: SupabaseClient) : ApprovalRepository {
@@ -614,7 +633,7 @@ class SupabaseApprovalRepository(private val client: SupabaseClient) : ApprovalR
                 "status" to ApprovalStatus.APPROVED.name,
                 "reviewed_by_id" to reviewerId,
                 "reviewed_by_name" to reviewerName,
-                "reviewed_at" to LocalDateTime.now().toString(),
+                "reviewed_at" to nowIso(),
             )
         ) { filter { eq("id", id) } }
     }
@@ -624,7 +643,7 @@ class SupabaseApprovalRepository(private val client: SupabaseClient) : ApprovalR
                 "status" to ApprovalStatus.REJECTED.name,
                 "reviewed_by_id" to reviewerId,
                 "reviewed_by_name" to reviewerName,
-                "reviewed_at" to LocalDateTime.now().toString(),
+                "reviewed_at" to nowIso(),
                 "rejection_reason" to reason,
             )
         ) { filter { eq("id", id) } }
@@ -653,7 +672,7 @@ internal data class NotificationRow(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val type: String = "APPROVAL_REQUESTED",
     val title: String = "", val message: String = "",
-    val timestamp: String = LocalDateTime.now().toString(),
+    val timestamp: String = nowIso(),
     @SerialName("is_read") val isRead: Boolean = false,
     @SerialName("target_route") val targetRoute: String = "",
 )
@@ -665,7 +684,7 @@ internal fun NotificationRow.toDomain() = AppNotification(
 )
 internal fun AppNotification.toRow() = NotificationRow(
     id = id, recipientStaffId = recipientStaffId.ifBlank { null }, recipientRole = recipientRole?.name,
-    type = type.name, title = title, message = message, timestamp = timestamp.toString(),
+    type = type.name, title = title, message = message, timestamp = timestamp.toIso(),
     isRead = isRead, targetRoute = targetRoute,
 )
 
@@ -709,7 +728,7 @@ internal data class AuditLogRow(
     @SerialName("performed_by_name") val performedByName: String = "",
     @SerialName("target_patient_id") val targetPatientId: String = "",
     @SerialName("target_patient_name") val targetPatientName: String = "",
-    val details: String = "", val timestamp: String = LocalDateTime.now().toString(),
+    val details: String = "", val timestamp: String = nowIso(),
     @SerialName("icon_name") val iconName: String = "edit",
 )
 internal fun AuditLogRow.toDomain() = AuditLogEntry(
@@ -720,7 +739,7 @@ internal fun AuditLogRow.toDomain() = AuditLogEntry(
 internal fun AuditLogEntry.toRow() = AuditLogRow(
     id = id, action = action, performedById = performedById.ifBlank { null }, performedByName = performedByName,
     targetPatientId = targetPatientId, targetPatientName = targetPatientName, details = details,
-    timestamp = timestamp.toString(), iconName = iconName,
+    timestamp = timestamp.toIso(), iconName = iconName,
 )
 
 class SupabaseAuditRepository(private val client: SupabaseClient) : AuditRepository {

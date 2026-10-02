@@ -9,6 +9,17 @@ Every notification that targets a specific patient uses `patient/{id}?tab={n}` (
 ### Daily task watchdog (Vitals/Utilities)
 `supabase/functions/daily-task-watchdog`, scheduled every minute via pg_cron, separate from `medication-watchdog` since these are once-a-day-per-patient checks, not per-dose: Vitals due by 09:00 IST (Supervisor alert at 09:00, Super Admin/Admin escalation at 09:30); Utilities due by 21:30 IST (Supervisor alert at 21:30, escalation at 22:00). Dedup via `vitals_alert_sent_at`/`vitals_escalation_sent_at`/`utility_alert_sent_at`/`utility_escalation_sent_at` on `patients`.
 
+### Full QA pass fixes (2026-10-02)
+Found by walking every workflow on an emulator as Super Admin and Supervisor:
+- **Supervisor Medicine requests were rejected by the DB** — `approval_entity_type` / `approval_action` are Postgres enums; `MEDICATION` and `ADD` were added by migration (any future entity/action needs the same).
+- **Duplicate "Dose due now" spam** — the `medications_partial_update_guard` trigger's allow-list lacked `due_now_sent_at`, so the watchdog's dedup write failed silently and the alert re-sent every minute of its 5-min window. Guard fixed (stale `allotment_*` names dropped too), and `medication-watchdog` now writes the dedup column FIRST (`claim()`) and skips the alert if that write fails.
+- **Medicines with history couldn't be deleted** — FKs from `medication_administration_log` / `medication_evidence_log` to `medications` are now `ON DELETE SET NULL` (`medication_id` nullable); history rows keep their own name/dose/tag copy.
+- **Retroactive doses no longer count as Missed** — `medications.created_at` added; a dose created after its giving window already closed today is skipped by the watchdog and shown Pending (not Missed) in the app until its next occurrence.
+- **Timestamp convention fixed** — the app used to write local IST wall-clock strings with no offset (stored as UTC, 5h30m late) and read by dropping the offset, so server-written times (Edge Functions) showed 5h30m early. Now: writes use `nowIso()`/`toIso()` (offset-aware), reads convert to the device zone. Legacy app-written rows need the ONE-TIME script `supabase/one_time/normalize_client_timestamps.sql` (run once, when installing the new build).
+- `ApprovalViewModel.approve()` now applies the change BEFORE marking the request approved (a failed apply no longer leaves a false "approved").
+- Approval Queue cards name the tab ("Medicine • Add/Edit/Delete"), render add-requests readably, and approve/reject notifications/audit entries are entity-specific.
+- Smaller: greeting by time of day, 2-letter profile avatar, "99+" bell badge, `+` icon on Add FABs, bottom padding under the Med list, wider Vitals/Utility Time columns, singular "1 min ago", honest wording on a Supervisor's delete request.
+
 ## Technology Stack
 - **Platform:** Android (Min SDK 26, Target SDK 35)
 - **Language:** Kotlin

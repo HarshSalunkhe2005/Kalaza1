@@ -51,6 +51,21 @@ function parseRecurringDays(csv: string | null): number[] {
   return csv.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
 }
 
+/**
+ * Writes the dedup timestamp BEFORE the notification goes out, and only proceeds if the write succeeded —
+ * if it silently fails (e.g. a DB guard rejecting the column), the alert would otherwise repeat every
+ * minute of its window instead of firing once.
+ */
+// deno-lint-ignore no-explicit-any
+async function claim(supabase: any, id: string, col: string): Promise<boolean> {
+  const { error } = await supabase.from("medications").update({ [col]: new Date().toISOString() }).eq("id", id);
+  if (error) {
+    console.error(`dedup write failed for medications.${col} (${id}): ${error.message}`);
+    return false;
+  }
+  return true;
+}
+
 Deno.serve(async () => {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -59,7 +74,7 @@ Deno.serve(async () => {
 
   const { data: meds, error } = await supabase
     .from("medications")
-    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, reminder_sent_at, due_now_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
+    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, created_at, reminder_sent_at, due_now_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
     .in("status", ["PENDING", "OVERDUE"]);
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
@@ -83,44 +98,48 @@ Deno.serve(async () => {
     }
 
     const deadlineMs = istDeadlineMs(effectiveDate, med.schedule_time);
+    // A dose entered after today's giving window had already closed (e.g. an 8 AM dose added at 6 PM)
+    // was never actually due today — don't fire alerts, audit rows or a MISSED history row for it.
+    if (med.created_at && Date.parse(med.created_at) > deadlineMs + 60 * 60_000) continue;
     const diffMinutes = (nowMs - deadlineMs) / 60_000;
     const patientName = (med as unknown as { patients: { name: string } | null }).patients?.name ?? "Unknown patient";
 
     if (diffMinutes >= -15 && diffMinutes < 0 && !sentToday(med.reminder_sent_at, today)) {
+      if (!(await claim(supabase, med.id, "reminder_sent_at"))) continue;
       await supabase.from("notifications").insert({
         recipient_role: "STAFF", type: "MEDICATION_REMINDER",
         title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due shortly`,
         target_route: `patient/${med.patient_id}?tab=2`,
       });
-      await supabase.from("medications").update({ reminder_sent_at: new Date().toISOString() }).eq("id", med.id);
       reminders++;
     }
 
     if (diffMinutes >= 0 && diffMinutes < 5 && !sentToday(med.due_now_sent_at, today)) {
+      if (!(await claim(supabase, med.id, "due_now_sent_at"))) continue;
       await supabase.from("notifications").insert({
         recipient_role: "SUPERVISOR", type: "MEDICATION_REMINDER",
         title: "Dose due now", message: `${med.medicine_name} for ${patientName} is due now`,
         target_route: `patient/${med.patient_id}?tab=2`,
       });
-      await supabase.from("medications").update({ due_now_sent_at: new Date().toISOString() }).eq("id", med.id);
       dueNow++;
     }
 
     // Window is scheduled time -> +60 min, so this +15 alert is a heads-up, not the
     // actual Missed status (that's the +65 checkpoint below, once the window closes).
     if (diffMinutes >= 15 && diffMinutes < 65 && !sentToday(med.admin_alert_sent_at, today)) {
+      if (!(await claim(supabase, med.id, "admin_alert_sent_at"))) continue;
       await supabase.from("notifications").insert({
         recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ALERT",
         title: "Dose not given yet", message: `${med.medicine_name} for ${patientName} has not been given yet`,
         target_route: `patient/${med.patient_id}?tab=2`,
       });
-      await supabase.from("medications").update({ admin_alert_sent_at: new Date().toISOString() }).eq("id", med.id);
       adminAlerts++;
     }
 
     // At +65 (window closed + 5) the dose is missed: Supervisor and Super Admin
     // are both told. Both share superadmin_alert_sent_at for dedupe.
     if (diffMinutes >= 65 && !sentToday(med.superadmin_alert_sent_at, today)) {
+      if (!(await claim(supabase, med.id, "superadmin_alert_sent_at"))) continue;
       await supabase.from("notifications").insert([
         {
           recipient_role: "SUPERVISOR", type: "MEDICATION_MISSED_ALERT",
@@ -151,7 +170,6 @@ Deno.serve(async () => {
         date: effectiveDate,
         status: "MISSED",
       }, { onConflict: "medication_id,date", ignoreDuplicates: true });
-      await supabase.from("medications").update({ superadmin_alert_sent_at: new Date().toISOString() }).eq("id", med.id);
       escalations++;
     }
   }

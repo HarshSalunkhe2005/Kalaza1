@@ -12,8 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kalazacare.app.data.model.ApprovalAction
+import com.kalazacare.app.data.model.ApprovalEntityType
 import com.kalazacare.app.data.model.ApprovalRequest
 import com.kalazacare.app.data.model.ApprovalStatus
+import com.kalazacare.app.data.model.NewMedicationPayload
+import com.kalazacare.app.data.model.displayLabel
+import com.kalazacare.app.data.sync.syncJson
 import com.kalazacare.app.ui.ApprovalViewModel
 import com.kalazacare.app.ui.components.ConfirmDialog
 import com.kalazacare.app.ui.components.EmptyState
@@ -138,7 +143,21 @@ private fun ApprovalRequestCard(
             }
             
             Spacer(modifier = Modifier.height(8.dp))
-            
+
+            // Which tab/record type this is and what kind of change — the approver shouldn't have to guess.
+            Text(
+                text = "${request.entityType.displayLabel()} • ${when (request.action) {
+                    ApprovalAction.ADD -> "Add"
+                    ApprovalAction.EDIT -> "Edit"
+                    ApprovalAction.DELETE -> "Delete"
+                }}",
+                style = MaterialTheme.typography.labelMedium,
+                color = KalazaRed,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             Text(
                 text = "Requested by ${request.requestedByName} • ${request.timestamp.timeAgo()}",
                 style = MaterialTheme.typography.labelSmall,
@@ -153,17 +172,49 @@ private fun ApprovalRequestCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Field Changed: ${request.fieldChanged}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${request.oldValue.ifBlank { "None" }}  →  ${request.newValue.ifBlank { "None" }}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = KalazaRed
-                    )
+                    when (request.action) {
+                        ApprovalAction.ADD -> {
+                            Text(
+                                text = "New medication",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = describeNewMedication(request.newValue),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = KalazaRed
+                            )
+                        }
+                        ApprovalAction.DELETE -> {
+                            Text(
+                                text = "Delete: ${request.fieldChanged}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (request.entityType == ApprovalEntityType.MEDICATION && request.oldValue.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = request.oldValue,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = KalazaRed
+                                )
+                            }
+                        }
+                        ApprovalAction.EDIT -> {
+                            Text(
+                                text = "Field Changed: ${request.fieldChanged}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${request.oldValue.ifBlank { "None" }}  →  ${request.newValue.ifBlank { "None" }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = KalazaRed
+                            )
+                        }
+                    }
                 }
             }
 
@@ -204,7 +255,7 @@ private fun ApprovalRequestCard(
     if (showApproveConfirm) {
         ConfirmDialog(
             title = "Approve Request",
-            message = "Are you sure you want to approve this change to ${request.patientName}'s record?",
+            message = "Approve this ${request.entityType.displayLabel().lowercase()} request for ${request.patientName}?",
             onConfirm = {
                 onApprove()
                 showApproveConfirm = false
@@ -257,4 +308,22 @@ private fun RejectDialog(
             }
         }
     )
+}
+
+/** Readable one-liner for an add-medication request's serialized draft entry. */
+private fun describeNewMedication(json: String): String {
+    val p = runCatching { syncJson.decodeFromString<NewMedicationPayload>(json) }.getOrNull() ?: return json
+    val tag = p.tag.lowercase().replaceFirstChar { it.uppercase() }
+    val repeat = if (!p.isRecurring) "One-time on ${p.scheduledDate}"
+        else if (p.recurringDays.isBlank()) "Every day"
+        else "Days: " + p.recurringDays.split(",").mapNotNull { it.trim().toIntOrNull() }
+            .joinToString(", ") { listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").getOrElse(it - 1) { "?" } }
+    return buildList {
+        add(p.medicineName)
+        if (p.dose.isNotBlank()) add("Dose ${p.dose}")
+        if (p.quantity.isNotBlank()) add("Qty ${p.quantity}")
+        add("${p.scheduleTime} ($tag)")
+        add(repeat)
+        if (p.notes.isNotBlank()) add("Note: ${p.notes}")
+    }.joinToString(" • ")
 }

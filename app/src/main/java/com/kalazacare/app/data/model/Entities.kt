@@ -166,6 +166,9 @@ data class MedicationEntry(
     val administeredAt: LocalDateTime? = null,
     val notes: String = "",
     val administeredScannedCode: String = "",
+    // When the entry was created (server-set). A dose created after its window already closed today
+    // isn't counted Missed for that same day — see MedicationEntry.withComputedStatus.
+    val createdAt: LocalDateTime? = null,
 )
 
 /**
