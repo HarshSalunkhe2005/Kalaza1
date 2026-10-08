@@ -271,6 +271,7 @@ fun PatientProfileScreen(
                     2 -> MarTabContent(
                         medications = medications,
                         patientId = patientId,
+                        patientName = p.name,
                         marVm = marVm,
                     )
                     3 -> UtilityTabContent(
@@ -614,6 +615,7 @@ private fun AddVitalsDialog(
 private fun MarTabContent(
     medications: List<com.kalazacare.app.data.model.MedicationEntry>,
     patientId: String,
+    patientName: String,
     marVm: MarViewModel,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
@@ -713,7 +715,8 @@ private fun MarTabContent(
     adminMarkTarget?.let { entry ->
         QrScanDialog(
             title = "Mark ${entry.medicineName} Given",
-            message = "Admin override — this dose is outside the normal 1-hour window. Scan the QR code if available, or confirm manually.",
+            message = "Admin override — skips the round's time window only. Scan this patient's ${entry.tag.name.lowercase()} QR (or type its code); any other patient's or round's code is rejected.",
+            validate = { code -> com.kalazacare.app.util.doseQrMismatch(code, patientName, entry.tag) },
             onConfirm = { scannedCode ->
                 marVm.markAdministeredAsAdmin(entry, scannedCode)
                 adminMarkTarget = null
@@ -767,7 +770,7 @@ private fun AddMedicationDialog(
                 com.kalazacare.app.ui.components.DoseTagPicker(selected = tag, onSelect = { tag = it })
                 if (tagTimeMismatch) {
                     Text(
-                        "${DateUtils.formatTime(scheduleTime)} doesn't fall in ${tag?.label()}'s usual window — pick a time that matches, or change the tag.",
+                        "${DateUtils.formatTime(scheduleTime)} is outside the ${tag?.label()} round's window — pick a time inside it, or change the tag.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
                     )

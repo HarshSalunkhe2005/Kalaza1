@@ -1,6 +1,7 @@
 package com.kalazacare.app.data.repository
 
 import com.kalazacare.app.data.model.*
+import com.kalazacare.app.util.RoundWindows
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.EncodeDefault
@@ -251,13 +252,12 @@ private fun MedicationEntry.withComputedStatus(): MedicationEntry {
     }
     if (e.status != MedStatus.PENDING && e.status != MedStatus.OVERDUE) return e
     val effectiveDate = if (e.isRecurring) LocalDate.now() else e.scheduledDate
-    val scheduledAt = LocalDateTime.of(effectiveDate, e.scheduleTime)
-    // Still PENDING through the whole giving window; only Missed once it has closed.
-    val windowClosesAt = scheduledAt.plusMinutes(DOSE_WINDOW_MINUTES.toLong())
+    // Still PENDING through the whole giving window of its round; only Missed once that has closed.
+    val windowClosesAt = LocalDateTime.of(effectiveDate, RoundWindows.get(e.tag).end)
     // A dose added after today's window already closed (e.g. an 8 AM dose entered at 6 PM) was never
     // actually due today — it starts counting as Missed from its next occurrence, not retroactively.
     val addedTooLate = e.createdAt?.isAfter(windowClosesAt) == true
-    val computed = if (!addedTooLate && windowClosesAt.isBefore(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
+    val computed = if (!addedTooLate && !windowClosesAt.isAfter(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
     return if (computed != e.status) e.copy(status = computed) else e
 }
 

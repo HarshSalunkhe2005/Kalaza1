@@ -28,16 +28,26 @@ class ConnectivityObserver(context: Context) {
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
+    // Networks the OS currently reports as validated internet. Online state is derived from this set
+    // alone: the old callbacks re-read cm.activeNetwork inside onLost, which can still return the
+    // network that just dropped, leaving isOnline stuck true with no connection (offline ticks were
+    // then sent to the server, failed, and were neither applied nor queued).
+    private val validated = java.util.concurrent.ConcurrentHashMap.newKeySet<Network>()
+
     /** Call once, from KalazaApp.onCreate — registers a process-lifetime callback. */
     fun start() {
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { _isOnline.value = currentlyOnline() }
-            override fun onLost(network: Network) { _isOnline.value = currentlyOnline() }
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                _isOnline.value = currentlyOnline()
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) validated.add(network)
+                else validated.remove(network)
+                _isOnline.value = validated.isNotEmpty()
+            }
+            override fun onLost(network: Network) {
+                validated.remove(network)
+                _isOnline.value = validated.isNotEmpty()
             }
         })
     }

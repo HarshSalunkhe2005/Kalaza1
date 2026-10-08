@@ -10,7 +10,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.widget.Toast
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.DoseTag
@@ -26,6 +28,7 @@ import com.kalazacare.app.ui.components.QrScanDialog
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.DateUtils
+import com.kalazacare.app.util.RoundWindows
 import kotlinx.coroutines.delay
 import java.time.LocalTime
 
@@ -57,6 +60,7 @@ fun ScanScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var selectedIds by remember(patientName, tag) { mutableStateOf<Set<String>>(emptySet()) }
     var showConfirmDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -109,7 +113,14 @@ fun ScanScreen(
         ConfirmGivenDialog(
             meds = selectedMeds,
             onConfirm = {
-                viewModel.markGivenBatch(selectedIds.toList(), "SCAN_TAB:${patientName}|${tag?.name}")
+                // The list may have sat open past the window's end (or the 6s review took it there),
+                // so re-check eligibility at the moment of confirming rather than trusting the selection.
+                val now = LocalTime.now()
+                val stillDue = selectedMeds.filter { it.eligibility(now) == DoseEligibility.DUE }
+                if (stillDue.size < selectedMeds.size) {
+                    Toast.makeText(context, "The window has closed — ${selectedMeds.size - stillDue.size} dose(s) were not marked.", Toast.LENGTH_LONG).show()
+                }
+                viewModel.markGivenBatch(stillDue.map { it.id }, "SCAN_TAB:${patientName}|${tag?.name}")
                 selectedIds = emptySet()
                 showConfirmDialog = false
             },
@@ -208,33 +219,21 @@ private fun ScanEntry(
 /** Why a dose can't be checked off right now — drives both its visual state and whether it's selectable. */
 private enum class DoseEligibility { GIVEN, NOT_YET_DUE, DUE, WINDOW_CLOSED }
 
-/** A dose can be marked given from its scheduled time until this many minutes after it. */
-private const val ADMIN_WINDOW_MINUTES = com.kalazacare.app.data.model.DOSE_WINDOW_MINUTES
-
 /**
- * Signed distance from [scheduleTime] to [now] in minutes, shortest way around the clock —
- * a plain LocalTime subtraction breaks for a dose scheduled near midnight (e.g. an 11:50pm
- * Evening dose whose window end, 00:50, would otherwise look like it's *before*
- * 11:50pm instead of 60 minutes after it).
+ * A dose can only be marked given inside its round's window (Morning/Afternoon/Evening start–end,
+ * set in Config → Round Times, see util/RoundWindows.kt) — before it opens it's not due yet, once it
+ * closes it's locked entirely until tomorrow's occurrence. The medicine's own scheduleTime plays no
+ * part here (it only drives reminders). Strictly enforced; only the Admin override on the Med tab
+ * can mark a dose outside its window.
  */
-private fun MedicationEntry.minutesFromDue(now: LocalTime): Int {
-    val dueMin = scheduleTime.hour * 60 + scheduleTime.minute
-    val nowMin = now.hour * 60 + now.minute
-    var diff = nowMin - dueMin
-    if (diff > 720) diff -= 1440 else if (diff < -720) diff += 1440
-    return diff
-}
-
-/**
- * A dose can only be marked given from its scheduled time until [ADMIN_WINDOW_MINUTES]
- * after it (e.g. 8:00–9:00) — before that it's not due yet, after it it's locked entirely
- * until its next occurrence (tomorrow, for a recurring dose) opens its own window.
- */
-private fun MedicationEntry.eligibility(now: LocalTime): DoseEligibility = when {
-    status == MedStatus.ADMINISTERED -> DoseEligibility.GIVEN
-    minutesFromDue(now) < 0 -> DoseEligibility.NOT_YET_DUE
-    minutesFromDue(now) > ADMIN_WINDOW_MINUTES -> DoseEligibility.WINDOW_CLOSED
-    else -> DoseEligibility.DUE
+private fun MedicationEntry.eligibility(now: LocalTime): DoseEligibility {
+    if (status == MedStatus.ADMINISTERED) return DoseEligibility.GIVEN
+    val window = RoundWindows.get(tag)
+    return when {
+        window.isBeforeWindow(now) -> DoseEligibility.NOT_YET_DUE
+        window.isAfterWindow(now) -> DoseEligibility.WINDOW_CLOSED
+        else -> DoseEligibility.DUE
+    }
 }
 
 @Composable
@@ -259,8 +258,9 @@ private fun MatchedMedsList(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(patientName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("${tag.label()} round", style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val window = RoundWindows.get(tag)
+                Text("${tag.label()} round · ${DateUtils.formatTime(window.start)} – ${DateUtils.formatTime(window.end)}",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = onScanAnother) { Text("Scan Another") }
         }

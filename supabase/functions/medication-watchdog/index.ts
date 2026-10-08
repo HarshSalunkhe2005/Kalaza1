@@ -3,16 +3,18 @@
 // (or pg_cron), unlike send-push/cleanup-photos which are triggered by a
 // webhook/its own schedule respectively for different reasons.
 //
-// Four checkpoints per still-not-ADMINISTERED dose, each firing at most once
+// Four checkpoints per dose not yet given TODAY, each firing at most once
 // per day per dose (tracked via the *_sent_at timestamp columns on
 // `medications`, compared by IST calendar date so a recurring dose's
-// checkpoints reset every day). The 1-hour giving window (scheduled time to
-// +60 min, see DOSE_WINDOW_MINUTES on the Kotlin side) is unchanged by any of
-// this — these are early heads-up alerts, not the dose's actual status:
+// checkpoints reset every day). A dose can only be given inside its ROUND's
+// window (`round_windows` table, edited in the app's Config → Round Times; see
+// util/RoundWindows.kt) and is Missed once that window closes. The first three
+// alerts follow the medicine's OWN scheduled time; only Missed follows the window:
 //   - 15 min before  -> reminder to STAFF
 //   - at the dose time (0 to +5 min)   -> "due now" to SUPERVISOR
-//   - 15 min after   -> "not given yet" heads-up to SUPER_ADMIN (incl. Admins)
-//   - 65 min after (window closed +5)  -> actual Missed alert to SUPERVISOR
+//   - 15 min after (while the window is still open) -> "not given yet" heads-up
+//     to SUPER_ADMIN (incl. Admins)
+//   - when the round's window closes   -> actual Missed alert to SUPERVISOR
 //     and SUPER_ADMIN, plus the durable audit/history record
 //
 // All times in `medications` (schedule_time) are wall-clock IST (the app is
@@ -74,9 +76,17 @@ Deno.serve(async () => {
 
   const { data: meds, error } = await supabase
     .from("medications")
-    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, created_at, reminder_sent_at, due_now_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)")
-    .in("status", ["PENDING", "OVERDUE"]);
+    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, administered_at, created_at, reminder_sent_at, due_now_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)");
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+
+  // Round windows (wall-clock IST); if the table can't be read, fall back to the shipped defaults.
+  const windows: Record<string, { start: string; end: string }> = {
+    MORNING: { start: "08:00:00", end: "09:00:00" },
+    AFTERNOON: { start: "12:30:00", end: "13:30:00" },
+    EVENING: { start: "19:00:00", end: "21:00:00" },
+  };
+  const { data: rw } = await supabase.from("round_windows").select("tag, start_time, end_time");
+  for (const r of rw ?? []) windows[r.tag] = { start: r.start_time, end: r.end_time };
 
   const nowIstDate = nowIst();
   const today = istDateString(nowIstDate);
@@ -97,10 +107,20 @@ Deno.serve(async () => {
       if (recurringDays.length > 0 && !recurringDays.includes(todayIsoDay)) continue;
     }
 
+    // The row's status is never reset overnight, so a recurring dose given on any earlier day stays
+    // ADMINISTERED forever. Filtering on status alone silenced every alert after a dose's first given day
+    // (reminders and Missed stopped for all recurring doses). "Given" must mean given TODAY; a one-off
+    // dose that was given is done for good. Mirrors the app's own withComputedStatus daily reset.
+    if (med.status === "ADMINISTERED") {
+      const givenDay = med.administered_at ? istDateString(new Date(Date.parse(med.administered_at) + IST_OFFSET_MS)) : "";
+      if (!med.is_recurring || givenDay === effectiveDate) continue;
+    }
+
     const deadlineMs = istDeadlineMs(effectiveDate, med.schedule_time);
+    const windowEndMs = istDeadlineMs(effectiveDate, (windows[med.tag] ?? windows.MORNING).end);
     // A dose entered after today's giving window had already closed (e.g. an 8 AM dose added at 6 PM)
     // was never actually due today — don't fire alerts, audit rows or a MISSED history row for it.
-    if (med.created_at && Date.parse(med.created_at) > deadlineMs + 60 * 60_000) continue;
+    if (med.created_at && Date.parse(med.created_at) > windowEndMs) continue;
     const diffMinutes = (nowMs - deadlineMs) / 60_000;
     const patientName = (med as unknown as { patients: { name: string } | null }).patients?.name ?? "Unknown patient";
 
@@ -124,9 +144,8 @@ Deno.serve(async () => {
       dueNow++;
     }
 
-    // Window is scheduled time -> +60 min, so this +15 alert is a heads-up, not the
-    // actual Missed status (that's the +65 checkpoint below, once the window closes).
-    if (diffMinutes >= 15 && diffMinutes < 65 && !sentToday(med.admin_alert_sent_at, today)) {
+    // A heads-up, not the actual Missed status (that's the checkpoint below, once the round's window closes).
+    if (diffMinutes >= 15 && nowMs < windowEndMs && !sentToday(med.admin_alert_sent_at, today)) {
       if (!(await claim(supabase, med.id, "admin_alert_sent_at"))) continue;
       await supabase.from("notifications").insert({
         recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ALERT",
@@ -136,9 +155,11 @@ Deno.serve(async () => {
       adminAlerts++;
     }
 
-    // At +65 (window closed + 5) the dose is missed: Supervisor and Super Admin
+    // Once the round's window has closed the dose is missed: Supervisor and Super Admin
     // are both told. Both share superadmin_alert_sent_at for dedupe.
-    if (diffMinutes >= 65 && !sentToday(med.superadmin_alert_sent_at, today)) {
+    // Not retroactively: if the window closed over 2h ago (e.g. this check was down, or just deployed),
+    // a "missed" ping now would only be late noise.
+    if (nowMs >= windowEndMs && nowMs - windowEndMs <= 2 * 60 * 60_000 && !sentToday(med.superadmin_alert_sent_at, today)) {
       if (!(await claim(supabase, med.id, "superadmin_alert_sent_at"))) continue;
       await supabase.from("notifications").insert([
         {

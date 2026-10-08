@@ -63,15 +63,13 @@ enum class ApprovalAction { ADD, EDIT, DELETE }
 
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
-/** A dose can be given from its scheduled time until this many minutes after; past that it's Missed (OVERDUE). */
-const val DOSE_WINDOW_MINUTES = 60
-
 /**
  * Coarse dosing bucket a medication is assigned to, independent of its exact
- * [MedicationEntry.scheduleTime]. Drives both the daily reminder notification
- * and the batch-QR match on the Scan tab — the QR staff prints for a patient
- * encodes one of these three, and a scan only unlocks that patient's doses
- * tagged with the matching bucket.
+ * [MedicationEntry.scheduleTime]. Drives the batch-QR match on the Scan tab — the QR staff
+ * prints for a patient encodes one of these three, and a scan only unlocks that patient's
+ * doses tagged with the matching bucket — and the giving window: a dose can only be given
+ * inside its round's window (util/RoundWindows.kt, set in Config → Round Times) and turns
+ * Missed (OVERDUE) once that window closes. Reminders still follow the exact scheduleTime.
  */
 enum class DoseTag { MORNING, AFTERNOON, EVENING }
 

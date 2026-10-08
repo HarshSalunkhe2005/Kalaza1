@@ -213,8 +213,16 @@ class OfflineMedicationRepository(
 
     override suspend fun markAdministered(id: String, staffName: String, scannedCode: String) {
         if (connectivity.isOnline.value) {
-            remote.markAdministered(id, staffName, scannedCode)
-            return
+            // "Online" can lag reality (Wi-Fi with no internet stays validated for a while), so a
+            // network failure here falls through to the offline queue instead of losing the tick.
+            // Other errors (RLS, bad id) still surface. Replay is idempotent apart from a possible
+            // duplicate evidence row if the failure hit between the status update and that insert.
+            try {
+                remote.markAdministered(id, staffName, scannedCode)
+                return
+            } catch (_: io.github.jan.supabase.exceptions.HttpRequestException) {
+                // fall through to the queue
+            }
         }
         cache.readRow<MedicationRow>(table, id)?.let {
             cache.upsertRow(table, id, it.copy(

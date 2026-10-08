@@ -17,7 +17,7 @@ An Android application for managing day-to-day operations at the Kalaza Care ass
 - **Role-based access** — Super Admin, Supervisor, and Staff, each with a distinct dashboard, permission set, and navigation
 - **Patient management** — demographics, medical history, admission/archival, searchable dashboard
 - **Medication tracking (Med tab)** — recurring and one-time doses, dose-tag scheduling (Morning/Afternoon/Evening), a two-checkpoint allotment → administration workflow, and a per-day administration history view
-- **QR-scan evidence** — allotting or administering a dose requires scanning the patient's QR code; a dedicated Scan tab supports batch confirmation for an entire dosing round, gated to a ±30 minute window around the scheduled time
+- **QR-scan evidence** — allotting or administering a dose requires scanning the patient's QR code; a dedicated Scan tab supports batch confirmation for an entire dosing round, gated to each round's time window (Morning/Afternoon/Evening, editable in Config → Round Times); the Admin override on the Med tab skips that window but still requires the matching patient/round QR
 - **Vitals, Utility logs, Doctor Visits, Care Notes** — per-patient clinical records, with a 24-hour grace period before an edit requires approval
 - **Approval Queue** — Staff edits route through Super Admin review instead of applying directly
 - **Audit Log** — a permanent, read-only record of key actions across the app

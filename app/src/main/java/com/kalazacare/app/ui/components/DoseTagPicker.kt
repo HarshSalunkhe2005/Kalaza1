@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kalazacare.app.data.model.DoseTag
 import com.kalazacare.app.ui.theme.KalazaRed
+import com.kalazacare.app.util.RoundWindows
 import java.time.LocalTime
 
 /** Human-facing label for a [DoseTag] — used everywhere the tag is shown, not just here. */
@@ -22,17 +23,13 @@ fun DoseTag.label(): String = when (this) {
 }
 
 /**
- * Whether [time] falls in this tag's expected clock window — Morning
- * 12am–12pm, Afternoon 12pm–5pm, Evening 5pm–12am. Used to warn when a
- * medication's exact [com.kalazacare.app.data.model.MedicationEntry.scheduleTime]
- * and its [DoseTag] disagree (e.g. a 9pm dose tagged Morning), which would
- * otherwise sit silently wrong until a Scan-tab QR mismatch surfaced it.
+ * Whether [time] falls inside this round's giving window (util/RoundWindows.kt, set in Config →
+ * Round Times). Used to warn when a medication's exact
+ * [com.kalazacare.app.data.model.MedicationEntry.scheduleTime] and its [DoseTag] disagree — a dose
+ * scheduled outside its round's window could never be given on the Scan tab.
  */
-fun DoseTag.matches(time: LocalTime): Boolean = when (this) {
-    DoseTag.MORNING   -> time.hour in 0..11
-    DoseTag.AFTERNOON -> time.hour in 12..16
-    DoseTag.EVENING   -> time.hour in 17..23
-}
+fun DoseTag.matches(time: LocalTime): Boolean =
+    RoundWindows.get(this).let { !time.isBefore(it.start) && time.isBefore(it.end) }
 
 /**
  * Required Morning/Afternoon/Evening picker for a medication's [DoseTag].

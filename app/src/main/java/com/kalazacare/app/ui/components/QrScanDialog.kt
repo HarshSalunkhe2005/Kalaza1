@@ -55,8 +55,9 @@ import java.util.concurrent.Executors
  * soon as it's in frame and never touches a gallery/file picker, so there's
  * no path for staff to submit anything but a fresh, in-the-moment scan.
  * Decoded text is shown and requires an explicit Confirm tap before
- * [onConfirm] fires — the text itself isn't matched against anything, it's
- * just recorded as the evidence for this action.
+ * [onConfirm] fires. The text is recorded as the evidence for this action; it is only
+ * checked if the caller passes [validate] (null result = accept, else the error shown and
+ * the scan discarded). Callers that start from a specific dose must pass it.
  */
 @OptIn(ExperimentalGetImage::class)
 @Composable
@@ -67,6 +68,7 @@ fun QrScanDialog(
     // heading copy above it), or pass both to keep the old explanatory header.
     title: String? = null,
     message: String? = null,
+    validate: ((String) -> String?)? = null,
 ) {
     val context = LocalContext.current
 
@@ -166,7 +168,12 @@ fun QrScanDialog(
         },
         confirmButton = {
             Button(
-                onClick = { scannedCode?.let(onConfirm) },
+                onClick = {
+                    scannedCode?.let { code ->
+                        val problem = validate?.invoke(code)
+                        if (problem == null) onConfirm(code) else { errorMessage = problem; scannedCode = null }
+                    }
+                },
                 enabled = scannedCode != null,
                 colors = ButtonDefaults.buttonColors(containerColor = KalazaRed, contentColor = White),
             ) { Text("Confirm") }

@@ -478,10 +478,12 @@ class MarViewModel(
 
     /**
      * Super-Admin-only override, wired from MarTable's onMarkAdministeredAsAdmin — deliberately
-     * bypasses the Scan tab's ±30min administration window (that gating lives entirely in
-     * ScanScreen's own eligibility() check, not in the repository), since the whole point is
-     * correcting a dose that's already outside that window. Access control is enforced by the
-     * caller only passing this callback through when SessionManager.isAdmin() — this method
+     * bypasses the Scan tab's administration window (the dose's round window, util/RoundWindows.kt;
+     * that gating lives entirely in ScanScreen's eligibility() check, not in the
+     * repository), since the whole point is correcting a dose that's already outside that window.
+     * It does NOT bypass the QR check: the Med tab's dialog validates the code against this
+     * dose's patient + tag (util/DoseQr.kt) before calling here. Access control is enforced by
+     * the caller only passing this callback through when SessionManager.isAdmin() — this method
      * itself has no role check, matching how updateMedication/deleteMedication already work.
      */
     fun markAdministeredAsAdmin(entry: MedicationEntry, scannedCode: String) {
@@ -1426,7 +1428,29 @@ class ConfigViewModel(
     private val staffRepo: StaffRepository,
     private val utilityRepo: UtilityRepository,
     private val syncManager: SyncManager,
+    private val auditRepo: AuditRepository,
 ) : ViewModel() {
+    /** Round windows (Config → Round Times); the store itself lives in util/RoundWindows. */
+    val roundWindows: StateFlow<Map<DoseTag, com.kalazacare.app.util.RoundWindow>> = com.kalazacare.app.util.RoundWindows.windows
+    fun saveRoundWindow(tag: DoseTag, start: java.time.LocalTime, end: java.time.LocalTime, onResult: (Boolean, String) -> Unit) {
+        if (!SessionManager.isAdmin()) return
+        safeLaunch("save these round times") {
+            try {
+                val before = com.kalazacare.app.util.RoundWindows.get(tag)
+                com.kalazacare.app.util.RoundWindows.save(tag, start, end)
+                auditRepo.addLog(AuditLogEntry(
+                    action = "Round Times Changed",
+                    performedById = SessionManager.getCurrentStaffId(),
+                    performedByName = SessionManager.getCurrentStaffName(),
+                    details = "${tag.name.lowercase().replaceFirstChar { it.uppercase() }} round window ${before.start}–${before.end} → $start–$end",
+                    iconName = "edit",
+                ))
+                onResult(true, "Saved")
+            } catch (e: Exception) {
+                onResult(false, "Could not save: ${e.message}")
+            }
+        }
+    }
     private val _staffList = MutableStateFlow<List<Staff>>(emptyList())
     val staffList: StateFlow<List<Staff>> = _staffList.asStateFlow()
     private val _utilItems = MutableStateFlow<List<UtilityItem>>(emptyList())
@@ -1608,7 +1632,7 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(CareNoteViewModel::class.java)    -> CareNoteViewModel(careNoteRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo, vitalsRepo, utilityRepo, careNoteRepo, medRepo) as T
         modelClass.isAssignableFrom(AuditLogViewModel::class.java)    -> AuditLogViewModel(auditRepo) as T
-        modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo, syncManager) as T
+        modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo, syncManager, auditRepo) as T
         modelClass.isAssignableFrom(SummaryViewModel::class.java)     -> SummaryViewModel(medRepo, vitalsRepo, approvalRepo, patientRepo, utilityRepo, doctorVisitRepo, careNoteRepo) as T
         modelClass.isAssignableFrom(NotificationViewModel::class.java)-> NotificationViewModel(notificationRepo) as T
         modelClass.isAssignableFrom(TodoListViewModel::class.java)    -> TodoListViewModel(medRepo, patientRepo) as T

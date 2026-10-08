@@ -6,6 +6,7 @@ import com.kalazacare.app.data.remote.SupabaseClients
 import com.kalazacare.app.data.repository.*
 import com.kalazacare.app.data.sync.SyncManager
 import com.kalazacare.app.util.ConnectivityObserver
+import com.kalazacare.app.util.RoundWindows
 
 /**
  * Application class — every data repository is backed by Supabase, wrapped in an
@@ -33,6 +34,7 @@ class KalazaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler.install(this)
+        RoundWindows.init(this)
         val client = SupabaseClients.main
 
         val cacheDb = KalazaCacheDb.get(this)
