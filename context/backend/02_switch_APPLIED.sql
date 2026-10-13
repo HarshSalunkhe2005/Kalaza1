@@ -1,7 +1,6 @@
--- 02_switch.sql — run at the SWITCH, i.e. only after EVERY phone is on app 1.0.3 or later.
--- (Older apps judge the window differently, so these server rules would reject or mis-time their ticks.)
--- Order: deploy the new medication-watchdog Edge Function (supabase/functions/medication-watchdog) first,
--- then run PART A, then — after an explicit go-ahead — PART B.
+-- 02_switch.sql — PART A was APPLIED on 2026-10-13 (migration `switch_30min_window_rules`), after the
+-- medication-watchdog v11 deploy (medication-watchdog_DEPLOYED_v11.ts). Phones still on an older app are
+-- told 'Outside the 30-minute giving window' if they tick after T+30. PART B (the wipe) is NOT applied.
 
 -- ───────────── PART A: new rules ─────────────
 
@@ -18,17 +17,19 @@ declare
   v_since   int;
 begin
   -- A "tick" = becoming ADMINISTERED, or a fresh administered_at (a recurring dose given again on a new day).
-  -- The >1s test keeps an unrelated edit of an already-given dose (which re-sends the same timestamp,
-  -- possibly rounded) from being mistaken for one.
+  -- The >1s test keeps an unrelated edit of an already-given dose from being mistaken for one.
   if new.status = 'ADMINISTERED' and (
        old.status is distinct from 'ADMINISTERED'
        or old.administered_at is null
        or abs(extract(epoch from (new.administered_at - old.administered_at))) > 1
      ) then
-    if coalesce(new.recorded_offline, false) then
+    -- Offline replay: flagged AND the recorded time is clearly in the past. The flag alone is not enough
+    -- (an older app never clears it on later live ticks).
+    if coalesce(new.recorded_offline, false) and new.administered_at < clock_timestamp() - interval '1 minute' then
       return new;
     end if;
     new.administered_at := clock_timestamp();
+    new.recorded_offline := false;
     if not is_super_admin() then
       v_now_min := extract(hour from (clock_timestamp() at time zone 'Asia/Kolkata'))::int * 60
                  + extract(minute from (clock_timestamp() at time zone 'Asia/Kolkata'))::int;

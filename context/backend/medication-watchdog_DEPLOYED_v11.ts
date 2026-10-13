@@ -1,8 +1,8 @@
 // Supabase Edge Function — scheduled (not event-driven) watchdog over
-// medication deadlines. Runs every minute via pg_cron (see supabase/sql).
+// medication deadlines. Runs every minute via pg_cron .
 //
 // Each dose has its own giving window: from its scheduled time T until T+30 min (DOSE_WINDOW_MINUTES on
-// the Kotlin side; the DB trigger in supabase/sql/02_switch.sql enforces the same). Three checkpoints per
+// the Kotlin side; the DB trigger in 02_switch_APPLIED.sql enforces the same). Three checkpoints per
 // dose not yet given TODAY, each firing at most once per IST day (dedup via the *_sent_at columns on
 // `medications`, so a recurring dose's checkpoints reset daily):
 //   - T-15 min          -> reminder to STAFF and SUPERVISOR          (reminder_sent_at)
