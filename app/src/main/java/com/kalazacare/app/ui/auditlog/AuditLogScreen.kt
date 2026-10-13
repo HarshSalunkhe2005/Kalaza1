@@ -37,6 +37,7 @@ fun AuditLogScreen(
     onLogout: () -> Unit
 ) {
     val logs by viewModel.logs.collectAsState()
+    val daysShown by viewModel.daysShown.collectAsState()
 
     Scaffold(
         topBar = {
@@ -66,6 +67,11 @@ fun AuditLogScreen(
             ) {
                 items(logs) { log ->
                     AuditLogItem(log)
+                }
+                item {
+                    TextButton(onClick = { viewModel.loadOlder() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Showing the last $daysShown days — load 30 more")
+                    }
                 }
             }
         }

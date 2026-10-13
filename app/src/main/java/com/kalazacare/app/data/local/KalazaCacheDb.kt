@@ -39,14 +39,8 @@ interface CachedRowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(row: CachedRowEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAll(rows: List<CachedRowEntity>)
-
     @Query("DELETE FROM cached_rows WHERE tableName = :table AND id = :id")
     suspend fun delete(table: String, id: String)
-
-    @Query("DELETE FROM cached_rows WHERE tableName = :table")
-    suspend fun clearTable(table: String)
 }
 
 /** Status of one queued offline write, replayed by SyncManager once connectivity returns. */

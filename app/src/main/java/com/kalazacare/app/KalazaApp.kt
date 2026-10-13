@@ -1,12 +1,16 @@
 package com.kalazacare.app
 
 import android.app.Application
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.kalazacare.app.data.local.KalazaCacheDb
 import com.kalazacare.app.data.remote.SupabaseClients
 import com.kalazacare.app.data.repository.*
 import com.kalazacare.app.data.sync.SyncManager
 import com.kalazacare.app.util.ConnectivityObserver
-import com.kalazacare.app.util.RoundWindows
+import com.kalazacare.app.util.TrustedClock
 
 /**
  * Application class — every data repository is backed by Supabase, wrapped in an
@@ -34,12 +38,16 @@ class KalazaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler.install(this)
-        RoundWindows.init(this)
+        TrustedClock.init(this)
         val client = SupabaseClients.main
 
         val cacheDb = KalazaCacheDb.get(this)
         val cacheDao = cacheDb.cachedRowDao()
         connectivityObserver = ConnectivityObserver(this).also { it.start() }
+        // Re-anchor the trusted clock to the server whenever the connection (re)appears.
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            connectivityObserver.isOnline.collect { online -> if (online) TrustedClock.syncAsync() }
+        }
 
         val supabaseAuth = SupabaseAuthRepository(client)
         val supabaseStaff = SupabaseStaffRepository(client)

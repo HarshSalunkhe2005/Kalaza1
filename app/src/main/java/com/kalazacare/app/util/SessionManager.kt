@@ -6,8 +6,8 @@ import com.kalazacare.app.data.model.UserRole
 object SessionManager {
     private var currentStaff: Staff? = null
 
-    // A new session (login, bypass login, restore after process death) re-fetches the round windows.
-    fun setCurrentStaff(staff: Staff) { currentStaff = staff; RoundWindows.refreshAsync() }
+    // A new session (login, bypass login, restore after process death) re-anchors the trusted clock to the server.
+    fun setCurrentStaff(staff: Staff) { currentStaff = staff; TrustedClock.syncAsync() }
     fun getCurrentStaff(): Staff? = currentStaff
     fun isLoggedIn(): Boolean = currentStaff != null
     // isAdmin() is true for Super Admin AND Admin — they share every privilege.

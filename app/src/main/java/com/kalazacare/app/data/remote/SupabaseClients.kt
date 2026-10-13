@@ -8,7 +8,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 
 // The anon key is safe to embed client-side — every request it makes is still
-// subject to the Row Level Security policies in supabase/seed.sql, exactly
+// subject to the Row Level Security policies defined in the Supabase project, exactly
 // like Firebase's client config before it.
 private const val SUPABASE_URL = "https://acafqfjpbilakvnaxamb.supabase.co"
 private const val SUPABASE_ANON_KEY =

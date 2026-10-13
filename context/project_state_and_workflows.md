@@ -1,419 +1,47 @@
-# Kalaza Care - Project State & Workflows
-
-## Overview
-Kalaza Care is an Android application designed for a clinic/hospital environment to manage patients, staff, medication (MAR), vitals, care notes, and doctor visits. The app incorporates a role-based access control system featuring Super Admin, Admin, Staff, and Supervisor, with an approval queue for staff-made edits. The old two-checkpoint (allot → administer) medication workflow and its "Medicine" tab were removed entirely (the facility no longer separates who allots a dose from who gives it) — Supervisor's bottom nav is now identical to Staff's (Tasks/Patients/Scan).
-
-### Notification deep-linking
-Every notification that targets a specific patient uses `patient/{id}?tab={n}` (Info=0, Vitals=1, Med=2, Utilities=3, Visits=4, Notes=5) so tapping it opens the actual relevant tab, not just the patient's Info page — see `ApprovalEntityType.profileTabIndex()` in Entities.kt and both watchdog Edge Functions' `target_route` values. Approval-request notifications (which go to the approver, not a specific patient tab) still target the generic `"approval"` route.
-
-### Daily task watchdog (Vitals/Utilities)
-`supabase/functions/daily-task-watchdog`, scheduled every minute via pg_cron, separate from `medication-watchdog` since these are once-a-day-per-patient checks, not per-dose: Vitals due by 09:00 IST (Supervisor alert at 09:00, Super Admin/Admin escalation at 09:30); Utilities due by 21:30 IST (Supervisor alert at 21:30, escalation at 22:00). Dedup via `vitals_alert_sent_at`/`vitals_escalation_sent_at`/`utility_alert_sent_at`/`utility_escalation_sent_at` on `patients`.
-
-### Full QA pass fixes (2026-10-02)
-Found by walking every workflow on an emulator as Super Admin and Supervisor:
-- **Supervisor Medicine requests were rejected by the DB** — `approval_entity_type` / `approval_action` are Postgres enums; `MEDICATION` and `ADD` were added by migration (any future entity/action needs the same).
-- **Duplicate "Dose due now" spam** — the `medications_partial_update_guard` trigger's allow-list lacked `due_now_sent_at`, so the watchdog's dedup write failed silently and the alert re-sent every minute of its 5-min window. Guard fixed (stale `allotment_*` names dropped too), and `medication-watchdog` now writes the dedup column FIRST (`claim()`) and skips the alert if that write fails.
-- **Medicines with history couldn't be deleted** — FKs from `medication_administration_log` / `medication_evidence_log` to `medications` are now `ON DELETE SET NULL` (`medication_id` nullable); history rows keep their own name/dose/tag copy.
-- **Retroactive doses no longer count as Missed** — `medications.created_at` added; a dose created after its giving window already closed today is skipped by the watchdog and shown Pending (not Missed) in the app until its next occurrence.
-- **Timestamp convention fixed** — the app used to write local IST wall-clock strings with no offset (stored as UTC, 5h30m late) and read by dropping the offset, so server-written times (Edge Functions) showed 5h30m early. Now: writes use `nowIso()`/`toIso()` (offset-aware), reads convert to the device zone. Legacy app-written rows need the ONE-TIME script `supabase/one_time/normalize_client_timestamps.sql` (run once, when installing the new build).
-- `ApprovalViewModel.approve()` now applies the change BEFORE marking the request approved (a failed apply no longer leaves a false "approved").
-- Approval Queue cards name the tab ("Medicine • Add/Edit/Delete"), render add-requests readably, and approve/reject notifications/audit entries are entity-specific.
-- **Summary tab stats were wrong** — headline Meds Given/Pending filtered every medication by its stored creation date, ignoring recurring doses (so they read 0 on any day but the creation day). Now uses the same recurring-aware predicate as the Excel export; "Meds Pending" and a new "Meds Missed" are counted separately, and the report prints "Missed/Pending/Given" instead of raw enum names.
-- **Follow-ups (same day):** (1) `daily-task-watchdog` now skips a checkpoint for a patient created AFTER it today (`patients.created_at`), so a patient admitted at 3 PM doesn't get an instant morning-vitals alert, and writes its dedup column first like `medication-watchdog`. (2) The app lists/counts only the last 3 days of notifications (`NOTIFICATION_WINDOW_DAYS`); `supabase/one_time/notification_retention.sql` schedules a nightly delete of rows older than 30 days (run once by hand). The Supervisor still gets ~40 alerts/day, so the badge stays high unless "Mark all read" is tapped daily. (3) The Overview and Patients stats now show "Pending Meds" and "Missed Meds" separately (previously Pending included Missed).
-- Smaller: greeting by time of day, 2-letter profile avatar, "99+" bell badge, `+` icon on Add FABs, bottom padding under the Med list, wider Vitals/Utility Time columns, singular "1 min ago", honest wording on a Supervisor's delete request.
-
-## Technology Stack
-- **Platform:** Android (Min SDK 26, Target SDK 35)
-- **Language:** Kotlin
-- **UI Framework:** Jetpack Compose (Material 3)
-- **Architecture:** MVVM (Model-View-ViewModel) with StateFlow
-- **Backend:** Supabase — Postgres (via `postgrest-kt`) for all app data, Supabase Auth for login/staff accounts. Schema + Row Level Security policies live directly in the Supabase project (Dashboard/SQL Editor) — there is currently no `seed.sql` (or any schema-as-code file) checked into this repo; a prior version of this doc claimed one existed at the repo root, that was wrong.
-- **Push Notifications:** Firebase Cloud Messaging only (kept independent of the rest of the backend — no Firestore/Firebase Auth/Firebase Storage remain in the project).
-
----
-
-## What is Done (Completed Features)
-
-### 1. Role-Based Access & Authentication (UI & Logic)
-- **Super Admin Role** (`UserRole.SUPER_ADMIN` — this is the old, fully-privileged `ADMIN`, renamed): Has full access. Can view the Summary Tab, add new patients directly, add/revoke/delete staff members, approve/reject staff edit requests, and add/edit/delete MAR (medication) entries directly (no approval needed). `SessionManager.isAdmin()` checks this role — the name wasn't changed everywhere it's used, since the check's meaning ("today's fully-privileged admin") didn't change, only the enum's name did.
-- **Staff Role (Regular):** Has limited access. Cannot view the Summary Tab. Any edits to patient data generate an Approval Request instead of saving directly. No access to MAR add/edit/delete at all.
-- **Supervisor Role:** Same bottom nav/dashboard as Regular Staff. Can add/edit/delete MAR (medication) entries like Super Admin, but every add/edit/delete always goes through the Approval Queue first — no 24h grace window like Vitals/Utility/Care Notes (`ApprovalEntityType.MEDICATION`, see Med Tab below).
-- **Login is by Name, not Email.** The login screen asks for the staff member's Name; `AuthRepository.login` matches `Staff.name` case-insensitively, looks up a synthetic per-staff email, and authenticates for real against Supabase Auth (hashed password, server-side). `Staff.email` still exists as a separate contact-info field (shown in Config), it's just never the login credential. Super Admin assigns each staff member's password at creation time (`StaffRepository.addStaff`).
-
-### 2. Navigation & UI Shell
-- **Bottom Navigation Bar:** Context-aware based on the logged-in user. Super Admin sees: Overview, Patients, Approvals, Audit Log, Config, Summary. Supervisor and Regular Staff both see: Tasks, Patients, Scan (identical — the old Medicine tab that used to distinguish them was removed along with the allotment system).
-- **Top App Bar:** Customized to display the brand's red stripe (`KalazaRed`), the app logo, dynamic screen titles, and a clickable Notification Bell. On the Patients/Dashboard tab, the subtitle line shows the logged-in staff member's own name instead of a static "Dashboard" label.
-
-### 3. Patient Management
-- **Dashboard:** Displays quick stats (total patients, pending meds, pending approvals) and a searchable list of patient cards. Reloads on resume so returning from another tab shows current data.
-- **Patient Profile:**
-  - **Details Tab:** View/Edit patient demographics and medical history, including the **Admission Date** (now an editable date picker, previously fixed at creation time). Staff edits go to the Approval Queue. Super Admin edits save immediately and log to Audit.
-  - **Vitals Tab:** Record and view daily vitals (BP, Heart Rate, Temp, SpO2). Every role can edit an existing row via a pencil icon on that row: edits within 24h of the original entry apply directly (and are logged to Audit); edits made more than 24h after the entry go through the Approval Queue instead. Super Admin always edits directly.
-  - **Med Tab** (renamed from "MAR" — see section 20): Track scheduled medications. Add/edit/delete: Super Admin applies directly; Supervisor can do all three too, but every one always routes through the Approval Queue first (`ApprovalEntityType.MEDICATION` — no 24h grace window, unlike Vitals/Utility/Care Notes). Staff has no add/edit/delete access at all. Every dose is either **recurring** (`isRecurring = true`, the default — due every day regardless of its stored date, optionally narrowed to specific weekdays via `recurringDays`) or a **one-time dose** on a specific date (toggle + date picker in Add Medication). Every dose also carries a mandatory `DoseTag` (Morning/Afternoon/Evening — see section 20). Overdue status is computed live on every read: for a one-time dose against its own stored date, for a recurring dose against *today's* date — and for a recurring dose, ADMINISTERED also resets to a fresh PENDING/OVERDUE view once its day has passed, so "given yesterday" doesn't suppress today's occurrence. Marking a dose "given" is done from the Scan tab (batch QR flow), inside its round's window, see section 31 (or via the Admin "Mark Given" override on the Med tab, which skips only that window — its QR must still match the dose's patient + round, see section 30).
-  - **Utility Tab:** Log usage of medical utilities. Columns/fields are generated dynamically from whatever's configured in Config → Utility Items — adding a new item type there shows up here immediately, no code change needed. Row-level edit uses the same 24h-grace-then-approval policy as Vitals.
-  - **Doctor Visits Tab:** Log specific instructions and notes left by visiting doctors, now including a visit **time** alongside the date. Visits can also be **deleted** — Super Admin deletes directly (logged to Audit); every other role's delete request goes through the Approval Queue first.
-  - **Care Notes Tab:** Add general nursing/care notes for the patient, and edit an existing note via its pencil icon — same 24h-grace-then-approval policy as Vitals/Utility.
-
-### 4. Admin Workflows
-- **Approval Queue:** A dedicated screen where Admins can review, approve, or reject field-level changes requested by Staff. Approving applies the change directly to the Patient record (not just the request's status) and logs to Audit; rejecting also logs to Audit.
-- **Audit Logs:** A read-only chronological log of all major actions (Patient Added, Patient Edited, Approvals, Rejections, Medication Allotted, Patient Archived), each with the correct icon for its action type.
-- **Configuration / Staff Management:** Admins can add new staff (Regular or Medicine role), revoke existing staff, activate revoked staff, or delete staff entirely. Admins cannot revoke themselves.
-- **Archive Patient:** From a patient's profile (overflow menu, Admin-only), Admin can archive a patient's record after confirming. Archived patients are hidden from the main Dashboard list by default; a "Show Archived" toggle on the Dashboard reveals them (marked with an "Archived" badge).
-
-### 5. UI Polish & Theming
-- Strict adherence to the `KalazaRed` and `KalazaDarkMaroon` color palette.
-- Pixel-perfect empty states (e.g., "No Patients Found", "No Audit Logs").
-- Elegant tab navigation within the Patient Profile. The tab pager's own swipe gesture is disabled (`userScrollEnabled = false`) so it no longer fights with the Vitals/Utility tables' sideways scroll — tabs are still switchable by tapping.
-- Staff cards in Config never squeeze the name/role badge regardless of state — actions (Revoke, or Activate+Delete) live on their own footer row instead of competing for space in the header.
-
-### 6. In-App Notification System — fully live, including real push
-- A real Notifications screen (bell icon → badge count → list), reachable from Dashboard and the Medicine tab.
-- Notifications are generated at the actual point of the event, not just seeded: a staff edit request notifies all Admins; an approval/rejection notifies the requester; a supervisor allotment request notifies all Supervisors; fulfilling one notifies the requester back. Tapping a notification marks it read and navigates to the relevant screen (Approval Queue, Medicine tab, or the specific patient's profile).
-- **Push delivery is fully wired, both sides.** Client side: `KalazaMessagingService` requests the `POST_NOTIFICATIONS` permission, registers/refreshes the device's FCM token to the staff row, displays a real system notification (foreground/background/killed, all states), and deep-links a tap back into the right screen via `MainActivity.onNewIntent`. Server side: a Supabase Database Webhook fires the `send-push` Edge Function on every new `notifications` row, which resolves recipient(s) by `recipient_staff_id`/`recipient_role`, mints an FCM v1 OAuth token from a Cloud-Messaging-scoped service account, and sends a data-only push. Confirmed working end to end, app closed included.
-- **Medication deadline reminders & escalation** (`supabase/functions/medication-watchdog`, scheduled every minute via `pg_cron`). A dose's giving window is its round's window (section 31), not a per-dose time. The first three alerts follow the medicine's own scheduled time T; only Missed follows the window:
-  - T-15 min: Staff gets "Dose due soon".
-  - T+0 (0-5 min window): Supervisor gets "Dose due now".
-  - T+15 (only while the round's window is still open): Super Admin + Admin get a "Dose not given yet" heads-up — not yet the real Missed status.
-  - Round window closes: the actual Missed alert — Supervisor + Super Admin/Admin — plus a durable `audit_log` row and a `medication_administration_log` MISSED row.
-  Each checkpoint fires at most once per IST calendar day per dose, tracked via `reminder_sent_at`/`due_now_sent_at`/`admin_alert_sent_at`/`superadmin_alert_sent_at` on `medications`.
-- **Admin role** (`UserRole.ADMIN`): identical privileges to Super Admin, except only the Super Admin can create/revoke/delete an Admin, and the Super Admin itself can never be removed (enforced client-side, in two Edge Functions, and by a DB trigger). Admins receive everything addressed to `SUPER_ADMIN` (notifications, `current_staff_role()`).
-- **FCM token lifecycle:** saved at login and re-synced on every app launch (not just login); cleared on logout (before sign-out, while the session is still valid) so a logged-out account stops receiving pushes on that phone; a DB trigger strips a token from any other account if it's ever reused, so one phone only ever has one account's token at a time. `send-push` also clears tokens FCM reports as unregistered. A past bug (fixed) let a DB trigger (`staff_self_update_guard`) silently block every non-Super-Admin token save — if push ever silently stops again, check that `name_lower`/`fcm_token` are still in that trigger's allowed-columns list.
-- **Real-time sync:** Dashboard, Approval Queue, Medicine tab, and the Notifications screen all subscribe to Supabase Realtime on their underlying tables (`patients`, `medications`, `approval_requests`, `allotment_requests`, `notifications`) and refetch automatically on any change — no more waiting to navigate away and back to see another staff member's update.
-
-### 7. Input Validation
-- Phone numbers (staff phone, patient emergency phone) only accept digits as typed and require exactly 10 before the form can submit.
-- Patient age must be between 1 and 120.
-- Staff email is validated against a standard email pattern before Admin can add them.
-- Vitals fields (pulse, BP, SpO2, sugar) only accept digits; temperature accepts digits and a decimal point. All vitals fields are also range-checked (e.g. pulse 30–220, SpO2 0–100, temperature 90–110°F) with inline error text — an out-of-range value blocks Save.
-- Utility quantities only accept digits.
-- Staff names are trimmed before being stored, and login matching trims and case-folds the name, so trailing/leading whitespace never blocks a valid login.
-- Medications can still be scheduled before a patient's admission date (there are legitimate backdating reasons), but doing so now shows a warning Toast instead of silently accepting it.
-
-### 8. Doctor Visit Editing & Generalized Approval
-- Doctor visits are editable and deletable by any role. Super Admin edits/deletes apply directly (+ Audit Log entry); Staff/Supervisor edits/deletes generate `ApprovalRequest`s (field-level diffs for edits, a single delete-flagged request for deletes) routed to the Approval Queue.
-- `ApprovalRequest` now carries an `entityType` (`PATIENT`, `DOCTOR_VISIT`, `VITAL`, `UTILITY`, or `CARE_NOTE`), an `entityId`, and an `action` (`EDIT` or `DELETE`), so `ApprovalViewModel.approve()` knows which repository to apply the diff to and whether to delete or patch the record.
-- Vitals, Utility records, and Care Notes are now also editable by every role, via the row-level pencil icon on each entry. These three follow a **24h grace window**: edits made within 24h of the original entry's timestamp apply directly for any role (mistakes happen — all such edits are still logged to Audit); edits made after 24h route through the Approval Queue like everything else. Super Admin always edits directly regardless of age. There is currently no delete UI for Vitals/Utility/Care Notes (edit-only, matching what was asked for) — a follow-up if delete is ever needed there too.
-
-### 9. Time Input
-- All medication scheduling (Add Medication, Edit Medication) now uses a 12-hour HH:MM + AM/PM picker (`TimeOfDayField`) instead of raw 24-hour text fields, while still storing/computing everything internally as 24-hour `LocalTime`.
-
-### 10. Patient Profile Robustness
-- Editing a patient whose data hasn't finished loading (e.g. a stale/bad deep link) no longer risks a `NullPointerException` — Save is disabled and blocked with a "still loading" message until the patient record is actually present.
-- A patient profile for a non-existent ID now shows a "Patient not found" state with a Go Back button, instead of spinning forever indistinguishably from a real loading state.
-- `MedicationEntry`'s live-computed OVERDUE/PENDING status is reversible in both directions — editing a dose's time to a later slot un-overdues it instead of leaving it stuck OVERDUE forever. Verified by trace: this self-heals on every subsequent read regardless of what gets persisted mid-edit, so no residual bug remains here.
-
-### 11. Role Restructure: Super Admin + Photo-Audit-Only Admin
-- `UserRole.ADMIN` was renamed to `UserRole.SUPER_ADMIN` (keeps every existing admin power — `SessionManager.isAdmin()` now checks `SUPER_ADMIN`). A brand new, much more restricted `UserRole.ADMIN` was added: on login it goes straight to a standalone Photo Audit screen (`Routes.PHOTO_AUDIT`) and has no other access anywhere in the app — no dashboard, no approvals, no config, no bottom nav.
-- `StaffEditor`'s "Add Staff" role picker now excludes only `SUPER_ADMIN` (was excluding the old `ADMIN`) — Staff/Supervisor/Admin are all assignable through Config, Super Admin accounts aren't created through this dialog.
-- `RoleBadge` gained a distinct color for the new `ADMIN` role so it's visually distinguishable from `SUPER_ADMIN` in staff lists.
-
-### 12. MAR (Medication) Fixes & Delete
-- MAR add/edit/delete is Super Admin-only (`SessionManager.isAdmin()`); a delete action (with confirmation dialog) was added next to the existing edit pencil — there was previously no way to remove a MAR entry at all.
-- `TimeOfDayField`'s AM/PM `FilterChip`s previously left the selected chip's label using the theme's default (sometimes low-contrast) color; both chips now use an explicit `selectedLabelColor`/`labelColor` pair for reliable contrast in both states.
-- `TimeOfDayField`'s HH/MM text fields now clamp live as you type (HH to 1–12, MM to 0–59) instead of only clamping the emitted value while letting the displayed text show something out of range.
-
-### 13. Summary Report: Date Range + Per-Patient xlsx Export
-- The Summary screen takes a **date range** (start + end date pickers); `SummaryViewModel.load(start, end)` aggregates stats and per-patient breakdowns across the whole range, `buildRangeReport()` returns the raw per-patient data for export.
-- **(Superseded) Originally exported one combined multi-sheet workbook** (a Summary tab + one tab per patient). **Replaced** with **N separate styled `.xlsx` files, one per patient**, matching a reference "Simple Patient Report" template the team supplied: a dark navy title banner (patient name + date range), a blue column-header row (Date / Diagnosis / Medication / Vitals / Utilities / Notes / Signed By), alternating white/light-blue row banding, wrapped text, and frozen header rows. One row per calendar date in the selected range.
-- `XlsxWriter` (`util/XlsxWriter.kt`) was rebuilt from a plain unstyled writer into one that emits real OOXML styling (`styles.xml`: fonts, fills, cellXfs), merged cells, column widths, row heights, and frozen panes — still dependency-free, no Apache POI. Its API is now purpose-built (`buildPatientReport(patientName, rangeLabel, rows)`) rather than a generic multi-sheet writer, since only this one report shape is ever produced.
-- **Known modeling limitation, carried over from the data model (see "What is Remaining #1" below):** recurring medications have no true per-day history (their live status/administeredBy reset daily), so a recurring dose's status is only accurate for *today* — it's shown only on today's row in the report, not repeated across every day in a past range. One-time doses use their real, fixed `scheduledDate` regardless of range position.
-- Each file is saved straight to the device's **Downloads** folder via `DownloadsSaver` (`util/DownloadsSaver.kt`) — no share sheet, no "send to" step, no zip bundling.
-
-### 14. Wi-Fi-Scoped Login Gate
-- Login is blocked unless the device's connected Wi-Fi network is on an allow-list, matched by the network's **gateway/router IP** (`WifiChecker.currentWifiGatewayIp`, via `ConnectivityManager`/`LinkProperties`), not by SSID — SSID reading proved unreliable across recent Android versions/OEMs (kept coming back redacted despite every documented permission being granted). `ALLOWED_GATEWAY_IPS` in `WifiChecker.kt` holds the facility's known router IPs.
-- **Resolved**: the old "Skip Wi-Fi check (testing)" switch (any staff account could flip it with zero verification) is gone. The Wrong-Wi-Fi dialog now has a collapsed-by-default "Super Admin? Bypass with your password" link — expanding it re-validates real credentials via `authRepo.login()` and checks the resulting role is `SUPER_ADMIN` before signing them straight in; any other role's otherwise-valid credentials are rejected and immediately signed back out (`LoginViewModel.attemptSuperAdminBypass`). The dialog's raw debug dump (SDK version, manufacturer, permission booleans, gateway IPs) was also removed from the UI entirely — it was being shown unconditionally to every staff member.
-
-### 15. Super Admin Landing Screen: "Today" Overview
-- Super Admin's post-login landing screen (`SuperAdminOverviewScreen.kt`) was first built as a tabbed Today/Weekly-Report/Utilities/Patient-Details view, then simplified down to a single, denser "Today" view per product direction — those other three tabs were removed outright, not just hidden. Current screen: stat cards, a "Needs Your Attention" section listing pending Approval/Allotment requests in full (not just a count), and a Daily Breakdown (By Category incl. Doctor Visits / By Patient toggle).
-- Staff/Supervisor now land on a medicine-focused **Todo List** screen instead of the Patients dashboard (`ui/todo/TodoListScreen.kt`) — a flat, time-sorted list of today's medication tasks.
-- Top app bar was rebuilt as a plain, explicitly-sized `Row` instead of Material3's `TopAppBar` (`KalazaTopBar.kt`) — the latter enforces its own fixed ~64dp minimum height regardless of content, which is why an earlier attempt to resize the logo/title didn't visibly change the bar's height at all.
-
-### 16. Performance: Batched Queries
-- `DailySummaryViewModel.load()` used to do 1 + 3×N sequential Supabase round-trips (three per-patient queries, looped over every patient) to build the Super Admin "Today" view — now a fixed 4 queries regardless of patient count, via `getVitalsForDate`/`getUtilityForDate`/`getVisitsForDate` (one query across all patients, grouped client-side).
-- `ApprovalRepository`/`AllotmentRequestRepository.getPendingRequests()` and `NotificationRepository`'s unread-count/mark-all-read used to fetch the entire table's history and filter in Kotlin — now filtered server-side (`eq("status", ...)` / `eq("is_read", false)`), and `markAllReadForRecipient` is a single UPDATE instead of one per row. This mattered more than the query above long-term: it scaled with *time* (rows accumulate forever), not patient count.
-
-### 17. RLS Policy Fixes (from a full policy review against actual app call sites)
-- `doctor_visits_insert` was `is_super_admin()`-only, but the UI (`DoctorVisitsTab.kt`) deliberately lets every role schedule a visit — Staff/Supervisor tapping the FAB was silently failing (no try/catch on `addVisit()` either). Relaxed to `is_active_staff()` to match the UI's actual, intended behavior.
-- `notifications_insert` was `is_active_staff()`-only with no check on *which* notification type was being sent — any staff account could insert a fake notification (e.g. a spoofed "approved by Somnath") addressed to anyone. Tightened per-type to match exactly which role actually triggers each one in the app: `APPROVAL_REQUESTED`/`ALLOTMENT_REQUESTED` (any active staff, they self-submit), `ALLOTMENT_FULFILLED` (Supervisor+), `APPROVAL_APPROVED`/`APPROVAL_REJECTED` (Super Admin only).
-- Full policy set otherwise checked out clean against real insert/update/delete call sites (`patients`, `medications`, `staff`, `approval_requests`, `allotment_requests`, `audit_log`, `utility_items` all correctly gated and matched by the app's own role checks).
-
-### 18. Mock Data
-- A comprehensive 5-patient mock dataset exists (delivered as standalone SQL, not committed to the repo — run manually in the Supabase SQL Editor) covering every table, with distinct staff actors on each side of every allotment/administration/approval chain (no self-contradictory transactions). Required creating 3 additional real Supabase Auth-backed staff accounts (`staff.id` has a hard FK to `auth.users`, so a plain SQL insert into `staff` alone isn't possible) — Priya Deshmukh (Supervisor), Ramesh Kumar (Staff), Sunita Patil (Staff), shared password `KalazaStaff@123`.
-
-### 19. QR-Scan Evidence (Replaces Photo Evidence) + Admin Role Removed
-- Photo-evidence capture is gone. Allotting or administering a dose now requires scanning the medicine's QR code with a **live camera-only viewfinder** (`ui/components/QrScanDialog.kt`, built on CameraX + on-device ML Kit Barcode Scanning) — there is no gallery/file-picker path, matching the "must be scanned in the moment" requirement. The decoded text is shown and requires an explicit Confirm tap; it's recorded as-is by default; callers that start from a specific dose pass `validate` to reject a mismatched code (section 30).
-- `PhotoUploader.kt`, `CameraCaptureFile.kt`, and `PhotoConfirmDialog.kt` were deleted. The Supabase `Storage` plugin was removed from `SupabaseClients` (and the `storage-kt` dependency dropped) since nothing uploads files anymore.
-- `MedicationEntry`'s `allotmentPhotoUrl`/`allotmentPhotoExpiresAt` and `administeredPhotoUrl`/`administeredPhotoExpiresAt` became `allotmentScannedCode`/`administeredScannedCode` (no expiry — it's just text, not a Storage object with a retention window). `MedicationEvidenceEvent` similarly replaced `photoUrl`/`expiresAt` with a single `scannedCode`. `markAdministered`/`allotMedication` now take `scannedCode: String` instead of a photo URL + expiry pair. The per-patient xlsx report's per-day administration lookup (section 13) is unaffected — it only ever read `occurredAt`/`patientId`/`medicationId` off `MedicationEvidenceEvent`, never the photo fields.
-- The restricted, photo-audit-only `UserRole.ADMIN` (added in section 11) was removed entirely — `ui/photoaudit/PhotoAuditScreen.kt`, `PhotoAuditViewModel`/`PhotoAuditEntry`, `Routes.PHOTO_AUDIT`, and `SessionManager.isPhotoAdmin()` are all gone. `StaffEditor`'s role picker is unaffected (it already derived its options generically from `UserRole.entries`). Only three roles remain: `SUPER_ADMIN`, `SUPERVISOR`, `STAFF`.
-- **Backend restructuring is done too**: `medications`/`medication_evidence_log` columns were migrated to the `*_scanned_code` names, the `cleanup-photos` Edge Function's `pg_cron` schedule was unscheduled and the function itself deleted, Arti's `ADMIN` staff row was removed, and the now-unused evidence Storage bucket was deleted. Postgres has no `DROP VALUE` for enum types, so the now-unused `'ADMIN'` label is left in the DB's `user_role` enum type harmlessly rather than migrated away (would need a full type-swap for zero practical benefit).
-
-### 20. Batch-QR Scan Tab + Mandatory Dose Tags
-- Every `MedicationEntry` now carries a mandatory `DoseTag` (`MORNING`/`AFTERNOON`/`EVENING`, `data/model/Entities.kt`) alongside its exact `scheduleTime` — a coarse bucket independent of the precise time, picked via `DoseTagPicker` (required, no silent default) in both Add and Edit Medication. `DoseTag.matches(time)` (Morning 12am–12pm, Afternoon 12pm–5pm, Evening 5pm–12am) is checked live in both dialogs: a time/tag combo that doesn't agree (e.g. a 9pm dose tagged Morning) shows an inline red warning and blocks Save until resolved.
-- **New "Scan" tab** (`ui/scan/ScanScreen.kt`, bottom nav for Staff + Supervisor, not Super Admin): staff scan a patient's printed QR code — plain text payload `"<patient name>|<TAG>"`, e.g. `Vasant Rao Joshi|MORNING` — or use an always-available manual name+tag fallback if the camera won't cooperate. A successful match (name matched loosely: trimmed, case-insensitive, internal whitespace collapsed; tag matched exactly) fetches that patient's meds tagged for that round via `MedicationRepository.getMedicationsForPatientAndTag`. An unmatched/garbled QR hard-blocks with an error banner — the list never shows for a wrong scan.
-- The matched list is **checkbox multi-select**, not one QR-gated tap per dose like the Med tab's flow: doses already given show their status badge (greyed); doses whose `scheduleTime` hasn't arrived yet (compared live against `LocalTime.now()`) are also greyed out and their checkbox disabled, un-greying automatically once the clock catches up without needing a re-scan. Selecting one or more due doses surfaces a "Confirm N Given" bar, which opens a review popup listing exactly what's about to be marked (name + dose) — its OK button is disabled for 6 seconds (`CONFIRM_HOLD_SECONDS`) so it can't be reflex-tapped past; Cancel stays live throughout. Confirming calls `ScanViewModel.markGivenBatch()`, which marks every selected dose given and refreshes the list once.
-- "MAR" was renamed to "**Med**" as a patient-profile tab label (cosmetic only, `PatientProfileScreen.kt`'s tab list) — no route/behavior change.
-
-### 21. Schema Verification & Two Latent Bugs Found + Fixed
-A full introspection query (see prompt below) was run against the live Supabase project to replace assumption with a verified ground truth. It surfaced two real, live bugs, both fixed:
-- **`supabase-kt`'s Postgrest client hardcodes `Json { encodeDefaults = false }`** with no per-client override (confirmed from the library's own source, `Supabase/src/commonMain/kotlin/io/github/jan/supabase/Utils.kt`) — any field left at its Kotlin default value is silently **dropped from the request entirely**, not sent as null. This bit `MedicationRow.tag` (default `"MORNING"`, and the DB column had no server-side default): creating/leaving a medication on the default tag omitted `tag` from the insert, hitting the column's `NOT NULL` constraint (`23502` crash) — and editing a tag *back* to Morning would have silently no-op'd on update instead of persisting. Fixed with `@EncodeDefault(EncodeDefault.Mode.ALWAYS)` on `MedicationRow.tag`, which forces it into every request regardless of the encoder's own skip-defaults behavior; `MedicationRow.recurringDays` (default `""`) got the same annotation pre-emptively for the identical reason. **Any future field whose Kotlin default could legitimately be re-selected by a user (an enum-like column, a boolean, an empty-collection default) needs this same annotation** — don't assume a plain `@SerialName` field will always reach the request.
-- **`medications.recurring_days` didn't exist as a column at all** — the day-of-week recurring feature (section 13/14 of prior history) shipped Kotlin code (`MedicationRow.recurringDays`, `MedicationEntry.recurringDays: Set<Int>`) against a column that was never migrated in. It was masked by the exact bug above (an empty/default selection never got sent, so nothing ever tried to write to the missing column) — the first medication saved with specific weekdays picked would have crashed with `column "recurring_days" does not exist`. Fixed: `alter table medications add column if not exists recurring_days text not null default ''`.
-- Also found and fixed in passing: a stale, still-`active` `pg_cron` job (`cleanup-evidence-photos`, hourly) calling `functions/v1/cleanup-photos` — that Edge Function was deleted as part of section 19's photo→QR-scan migration, and the migration's own cron-unschedule step was apparently missed despite being marked done. Unscheduled via `select cron.unschedule('cleanup-evidence-photos')`.
-- **Lesson for future sessions:** don't assume a Kotlin data class's shape matches the live DB, or that a documented migration actually fully ran — re-verify against the real schema (introspection query below) whenever something in this space looks suspicious, rather than trusting prior session notes at face value.
-
-### 22. Scan Tab Refinements
-- **Due-time gating**: a dose in the Scan tab's matched list whose `scheduleTime` hasn't arrived yet (checked live against `LocalTime.now()` on every recomposition, not pinned at scan time) greys out and its checkbox disables — can't check off a 9am dose at 8am. It un-greys on its own once the clock catches up; no re-scan needed.
-- **`QrScanDialog` gained a manual-entry fallback**, shared by all four of its call sites (Medicine tab allotment, fulfilling an allotment request, Med tab mark-administered, and the Scan tab's own scan trigger) since it lives in the component itself rather than being duplicated per caller: an "enter code manually" text field is always available alongside the live camera view (and alongside the Grant Camera Access button if permission was denied), typing a value in and using it exactly as if it had been scanned. No QR flow in the app is camera-only anymore.
-- **`QrScanDialog`'s `title`/`message` params are now optional** (`String? = null`) — the Scan tab's own call passes neither, so that popup shows only the camera / scanned-result content (checkmark + the raw scanned text, e.g. `Xyz|MORNING`, in the same style as before), no explanatory heading above it. The other three call sites (allotment, fulfill, administer) still pass both and keep their original explanatory copy.
-- **`DoseTagPicker`'s chips got a couple extra dp of height** (`Modifier.heightIn(min = 36.dp)`) — the default Material3 `FilterChip` height was clipping the descender on "Evening" (the "g").
-- **Time/tag consistency validation**: Add and Edit Medication both compute `DoseTag.matches(scheduleTime)` live and show an inline red warning + disable Save when they disagree (e.g. a 9pm dose tagged Morning) — `DoseTag.matches()` lives in `ui/components/DoseTagPicker.kt` (Morning 12am–12pm, Afternoon 12pm–5pm, Evening 5pm–12am).
-- **Multi-select confirm with a deliberately slow OK**: the Scan tab's matched-dose list is checkbox-driven; selecting one or more due doses surfaces a "Confirm N Given" bar which opens `ConfirmGivenDialog` — lists every selected dose by name + dose, and its OK button is disabled for `CONFIRM_HOLD_SECONDS` (6s) so it can't be reflex-tapped past a batch without reading it; Cancel stays live the whole time. Confirming calls `ScanViewModel.markGivenBatch(ids, scannedCode)`, which marks all selected doses given and reloads the list once, not once per dose.
-
-### 23. Medication Reminder System: Two Real Bugs Found (Reading the Edge Functions, Not Just Assuming They Worked)
-Prompted by "has this actually ever been tested end-to-end, or just assumed working because a manual DB insert triggered a push once" — reading `supabase/functions/medication-watchdog/index.ts` and `send-push/index.ts` line-by-line surfaced two real, live bugs, both fixed and **now deployed live** (see section 25 for how — Management API deploy access was set up after this section was first written).
-- **The 5-minute "missed dose" tier was notifying nobody.** It targeted `recipient_role: "ADMIN"` — the restricted, photo-audit-only role removed entirely in section 19. The insert succeeded (Postgres never dropped the unused `'ADMIN'` enum label), so it looked fine from the `notifications` table alone, but no staff row has had that role in a long time: `getForRecipient` filters by the logged-in user's real role (no one is ever `ADMIN`), and `send-push`'s `staff` lookup for that role returns zero rows, so it silently no-ops (`{sent: 0}`, no error). Retargeted to `SUPERVISOR`. The 15-min-before reminder (Staff+Supervisor) and 10-min escalation (Super Admin) were never affected — those roles are real and staffed.
-- **The watchdog ignored `recurring_days` entirely**, treating every recurring dose as due every single day regardless of a weekday restriction — harmless only because the column didn't exist until section 21's fix, so nobody had actually used the feature yet. Now checked (`isoDayOfWeek` + `parseRecurringDays` in the Edge Function), matching the Kotlin app's own `isDueOn` display logic.
-- **Push reliability for a fully-closed app**: `send-push`'s FCM v1 payload had no `android.priority`, which defaults to `NORMAL` — Doze/App Standby can batch-delay or drop normal-priority data messages by minutes to hours once the app is killed, exactly the state this needs to survive. Added `android: { priority: "high" }`.
-- **Still genuinely untested end-to-end** as of this writing — worth actually scheduling a dose a few minutes out, killing the app fully, and confirming all three tiers arrive, rather than trusting this note alone.
-
-### 24. Staff Deletion Leaves the Auth Account Orphaned (Resolved — see section 26)
-`StaffRepository.deleteStaff` used to only remove the `staff` table row — the linked Supabase Auth account was never deleted, because that needs the Auth Admin API (service-role key), which the client SDK doesn't hold. Fixed in section 26 via a dedicated Edge Function; this section kept for history.
-
-### 25. Direct Supabase Access via Management API (PAT), No More Hand-Off SQL/Deploys
-The user provided a Supabase personal access token (`sbp_...`, account-level — controls every project on the account, not just this one) specifically to cut out the "paste this SQL into the SQL Editor" / "deploy this function yourself" round-trips. Stored only in the sandbox's session-scratchpad env file, never committed; the user was told explicitly to revoke it once active work against this repo winds down (same handling as the GitHub PAT already in the security backlog).
-- **Edge Function deploys**: the Supabase CLI's own `functions deploy` (even with `--use-api`, which bundles server-side without Docker) failed consistently with `FunctionsApiTransportError` through this sandbox's outbound proxy — its upload streams the multipart body via `io.Pipe` (chunked transfer encoding, no `Content-Length`), which the proxy doesn't handle. Worked around by calling the Management API's deploy endpoint directly with `curl -F` (a normal, non-streamed multipart body with a real `Content-Length`): `POST https://api.supabase.com/v1/projects/{ref}/functions/deploy?slug={slug}`, body fields `metadata` (JSON: `entrypoint_path`, `name`, `verify_jwt`) and `file` (the source, filename matching `entrypoint_path` exactly, relative to repo root e.g. `supabase/functions/{slug}/index.ts`).
-- **SQL access**: `POST https://api.supabase.com/v1/projects/{ref}/database/query` with `{"query": "..."}` runs arbitrary SQL directly, full privileges — no service-role key or DB password needed, the PAT alone is enough. Used to apply the `notifications_insert` RLS fix directly (see section 17/the schema-audit-fixes work) instead of handing the user another SQL file.
-
-### 26. Deep Cleanse Pass: Auto-Logout, Realtime Channel Leak, Auth Cleanup, DB Housekeeping
-Prompted by "app slowing down" plus explicit requests for a logout timer and orphaned-Auth fix. `supabase/` was considered for removal (now that deploys don't need a manual hand-off) and deliberately kept — it's still the only version-controlled source for 4 live Edge Functions; deleting it would mean losing history/diffability for production backend code, not just a hand-off artifact. `context/` was left untouched per explicit instruction, then fully reconciled at the end of this pass (this section).
-
-- **Auto-logout, 15 minutes idle, identical for every role, no override.** `KalazaNavHost` tracks `lastInteractionAt`, bumped by any pointer event anywhere in the app tree (an `Initial`-pass `pointerInput` at the `Scaffold` root that never consumes events, so it doesn't interfere with normal touch/scroll/click) and checked on a 15-second poll. Firing calls the same `onLogout` as the manual logout button (signs out of Supabase Auth, clears `SessionManager`, navigates to Login).
-- **Realtime channel leak — the actual likely cause of "app slowing down" over a session.** `subscribeToTableChanges` (7 call sites across `ViewModels.kt`) used to set up a channel and subscribe in one `launch`, then collect its change flow in a *separate, unlinked* inner `launch` — cancelling the outer coroutine (ViewModel cleared, e.g. on every screen navigation) never actually called `channel.unsubscribe()`, so every screen visit left one more channel permanently registered on the client's single shared Realtime socket for the rest of the app process's life, each still evaluated against every matching broadcast. Rewritten as one coroutine (setup → subscribe → collect) so cancellation runs `channel.unsubscribe()` in a `finally` (wrapped in `NonCancellable`, since unsubscribe itself is a suspend network call).
-- **Orphaned Supabase Auth accounts — fixed properly, not just cleaned up once.** New `admin-delete-staff` Edge Function (same shape as `admin-reset-password`: verifies the caller is an active Super Admin via their own session JWT, then uses the service-role Auth Admin API) deletes both the `staff` row and the linked `auth.users` row in one request; `StaffRepository.deleteStaff()` now calls it instead of a plain table delete. Also found and deleted 5 pre-existing orphaned `auth.users` rows on the live project (verified via `staff_id_fkey`'s `ON DELETE CASCADE` direction that this couldn't have touched any real `staff` row — it can only cascade child-to-parent, and an "orphan" is by definition a parent-less row). Two of the five (`staff.<uuid>@...`, `supervisor.<uuid>@...`) were from mid-August — the "Staff"/"Supervisor" demo accounts shown in an earlier manual screenshot are no longer in the live `staff` table (only Somnath is); whatever removed them is what orphaned those two Auth rows, not this cleanup pass.
-- **Removed `wifiDebugDump()`** (`WifiChecker.kt`) — dead code once its only caller (the Wi-Fi dialog's debug text) was removed in the earlier Wi-Fi-bypass work.
-- **DB index cleanup**: 7 exact-duplicate indexes existed (two separate indexes on the same column, e.g. both `idx_medications_patient_id` and `medications_patient_id_idx` — created twice across different migration passes without noticing the first), dropped. Added 4 that were missing on columns the app actually filters by but weren't indexed: `approval_requests.status`, `medications.status`, `notifications.is_read`, `staff.is_active`.
-- **`isMinifyEnabled` prep, not enabled**: added the standard kotlinx.serialization keep rules to `proguard-rules.pro` (every `@Serializable` *Row DTO needs these once minification is on, or release builds get `SerializationException`s at runtime that debug builds never show) — still `false` in `build.gradle.kts`; turning it on is a separate, deliberate step that needs an actual release-build test this sandbox can't run (no Android SDK).
-- **Stale GitHub branches**: tried deleting the 4 already-merged leftover branches again now that Supabase (not GitHub) access had just improved — still blocked by this environment's proxy on the GitHub side specifically, unrelated to Supabase. Cosmetic, unresolved.
-- **Indexing / Redis, answered while doing this pass**: indexing is now properly in place on every FK/filter column that matters (see above) — no gaps left at the app's current scale. No Redis or any caching layer exists or is warranted; this is a small-facility Supabase/Postgrest app with no custom backend server for a cache to sit in front of, and current data volumes don't come close to needing one.
-
-### 27. Offline Support: Local Cache + Write Queue
-- Room reintroduced on the **current** AGP 8.13.2/Gradle 8.14.5 stack (both bumped from 8.9.1/8.11.1 — the minimal, justified move KSP itself required, `≥8.10.0`; the earlier revert's AGP **9** jump was traced via `git log` to a separate, unexplained commit that was never actually required by Room/KSP at all).
-- `data/local/KalazaCacheDb.kt`: a single generic `cached_rows` table (`tableName`, `id`, `json`, `updatedAt`) storing the exact same `@Serializable` `*Row` DTOs the online path already produces — no per-entity Room `@Entity`/TypeConverters to keep in sync with schema changes, no second mapping layer.
-- `data/local/PendingOperationEntity.kt` + `data/sync/SyncManager.kt`: an offline write queue. Reads go to Supabase-and-cache when online, cache-only when offline. Pure-append writes (new vital/utility record/doctor visit/care note/patient/approval-or-allotment-request submission) queue and replay safely (a new row can't conflict). Mutating writes (mark administered/allot, approve/reject, edit-in-place, delete, archive) also queue, but replay re-checks current server state first and flags `CONFLICT` (logged to Audit, surfaced on a new Super-Admin-only **Sync Conflicts** tab in Config) instead of silently double-applying or overwriting newer data — e.g. a queued mark-administered is skipped if the dose was already given by someone else while this device was offline.
-- `OfflineStaffRepository`/`OfflineAuthRepository` deliberately excluded from the queue — those touch Supabase Auth Admin/Edge Functions, not plain Postgrest rows, with no sane "replay later" semantics for credentials.
-- Every offline write emits a one-shot "Saved offline — will sync when you're back online." message via a global snackbar, so an offline save is never silently indistinguishable from a normal one.
-
-### 28. Scan Tab Administration Window + Dose-Missed Audit Trail (window rule superseded by section 31)
-- **Bug found:** `ScanScreen.kt`'s dose eligibility check only had a lower bound (`now.isBefore(scheduleTime)` → not-yet-due) — once a dose's time passed, it stayed markable-as-given *forever*, so a Supervisor could still mark a morning dose given at 7pm. Fixed: eligibility got an upper bound too (since replaced by the round windows of section 31); outside that window the dose shows "Window closed" and is locked until its next occurrence (tomorrow, for a recurring dose — eligibility is recomputed live against today's date, same as everything else in this screen).
-- `medication-watchdog`'s existing 5-min-after-deadline checkpoint (already deduped once per day per dose) now also writes a permanent "Dose Missed" `audit_log` entry, reusing that exact checkpoint instead of building a second missed-dose detector — the existing `MEDICATION_MISSED_ALERT` notification to Supervisor stays as the ephemeral real-time ping; the audit entry is the durable record.
-
-### 29. Removed Redundant Med-Tab "Mark Given" + Dead Code Sweep
-- The patient Med tab's original per-dose "Mark Given" for every role was retired as redundant (an Admin-only override was later re-added, see section 30) with the Scan tab's batch flow — same underlying action, same evidence requirement, two UIs to maintain. `MedicationRepository.markAdministered` itself is untouched (still used by `ScanViewModel` and the offline sync queue). "Request Allotment" is a distinct concern and stays.
-- Dead-code sweep while in there: `ApprovalQueueScreen.kt` had its own duplicate `LocalDateTime.timeAgo()` (missing the "Just now" <1min case the real `util/Extensions.kt` version has) — consolidated. `WifiChecker.kt`'s `isOnAllowedWifi`/`isLocationServicesEnabled` had zero callers (`LoginScreen` reimplements the same gateway-IP check inline) — removed.
-
-### 30. Per-Day Medication Administration History + Two More Silent Watchdog Bugs
-- New `medication_administration_log` table (one row per medication-per-calendar-day, `ADMINISTERED`/`MISSED`, unique on `(medication_id, date)`), populated by two already-reliable write paths — `markAdministered()` (Scan tab + offline sync replay) and the watchdog's existing 5-min checkpoint from section 28 — no new cron job, no new client polling. Surfaced as a "History" tab alongside "Today" in the patient's Med tab (`MedicationHistoryTable.kt`, mirroring `UtilityTable.kt`'s look).
-- **Two more real, pre-existing bugs found while wiring this** (same "verify against the live system, don't trust that a documented feature actually works" lesson as section 21) — both would have silently swallowed this feature's own writes too, so worth fixing together:
-  - The **`notification_type` Postgres enum was missing `MEDICATION_REMINDER`/`MEDICATION_MISSED_ALERT`/`MEDICATION_MISSED_ESCALATION` entirely** — confirmed by a direct insert throwing `invalid input value for enum`. Every watchdog notification for these three types had been failing on every single invocation since the feature was built (section 23's "confirmed working end to end" claim was never actually verified against the live enum). The client code never checks `.error` on these Edge Function inserts, so the failure was completely silent. Fixed via `ALTER TYPE ... ADD VALUE` for all three.
-  - **`medications_partial_update_guard`'s allowed-columns list didn't include `reminder_sent_at`/`admin_alert_sent_at`/`superadmin_alert_sent_at`**, and the watchdog runs as service-role (no `auth.uid()`, so `is_super_admin()` evaluates false) — every dedup-timestamp write the watchdog made was rejected by the trigger (also silently, same unchecked-`.error` reason), so **the watchdog re-fired every single minute for every still-overdue dose, indefinitely** — confirmed live: 2016 duplicate "Dose Missed" audit_log rows had accumulated from section 28's deploy. Fixed by adding those three columns to the trigger's allow-list (safe: the Kotlin app's own `MedicationEntry` never has these fields at all, so no client payload can touch them regardless of policy). Cleaned the 2016 duplicates down to 19 (one per real patient/medicine/day).
-  - **Lesson reinforced:** `supabase-js`/`supabase-kt` calls that don't check their returned `.error` can hide a completely broken write path indefinitely with zero visible symptoms other than "the feature just doesn't do anything" — worth grepping for unchecked `.update()`/`.insert()` calls in the Edge Functions as a follow-up if anything else seems suspiciously inert.
-
-### 31. Staff Edit-Request Flow Was Completely Broken (Found via a Real Staff Account, End-to-End)
-Test account coverage (the last open item from "What is Remaining") was closed by actually creating a real `STAFF`-role account through the app's own Add Staff dialog and logging in as them — surfaced a bug the whole test suite of Super Admin/Supervisor sessions could never have caught, since it only fires for the single most common real edit case.
-- **Bug**: a Staff member editing any patient-info field (the ordinary, expected path — Staff edits always route to the Approval Queue rather than saving directly) threw `PostgrestRestException: null value in column "entity_type" ... violates not-null constraint` on `approval_requests`. Root cause: `ApprovalRequestRow.entityType`'s Kotlin default (`"PATIENT"`) is the exact value used for every patient-info edit, and `entity_type` has no DB-level default — so supabase-kt's `encodeDefaults=false` silently dropped it from literally the most common insert this table will ever receive. Same bug class as `MedicationRow.tag` (section 21), just newly found on a different table.
-- **Second bug, same root cause, one layer deeper**: after fixing that, submitting the same edit failed again — this time `notifications` RLS rejected the insert (42501) because `NotificationRow.type`'s Kotlin default (`"APPROVAL_REQUESTED"`) is again the exact value used when a Staff member's edit request notifies Super Admin, and `type` has no DB default either. Both fixed with `@EncodeDefault(EncodeDefault.Mode.ALWAYS)`, the established fix for this bug class in this codebase.
-- **A third instance of the identical bug was caught in this session's own new code before it shipped**: `MedicationHistoryRow` (section 30) had the same issue on `tag`/`date`/`status` — `date` is especially bad since it's `LocalDate.now().toString()`, a value that matches its own freshly-recomputed default on essentially every call, meaning the per-day history feature would have failed on nearly every `markAdministered()` call. Fixed before it was ever exercised by a real user.
-- **Verified live, not just by re-reading code**: the entity_type/type fix was confirmed by actually submitting a Staff edit and watching it land correctly in `approval_requests` with a real notification reaching Super Admin; the history fix was confirmed by a real Scan-tab mark-given producing a correct `medication_administration_log` row with the right tag/date.
-- **Lesson, again**: this is the third time in this project's history (see sections 21, 23) that "we assumed a Kotlin default was harmless" turned out to hide a real failure — specifically because `encodeDefaults=false` only ever bites when a field is left at *exactly* its Kotlin default, which is disproportionately likely to be the single most common real value for that field, not a rare edge case. Worth a deliberate pass over every `*Row` class whenever a new one is added, checking each field's Kotlin default against its DB column's nullability/default the way this session's investigation did.
-
----
-
-## Verified Database Schema (Supabase, `public` schema)
-
-Ground truth as of the section 21 audit — re-run the query below and re-verify before trusting this if it's been a while, rather than assuming it's still accurate.
-
-**Introspection query** (single query, returns one pretty-printed JSON column covering tables/columns/types/nullability/defaults, primary keys, foreign keys, check constraints, RLS enabled-state + policies, indexes, and `pg_cron` jobs):
-```sql
-select jsonb_pretty(
-  jsonb_build_object(
-    'tables', (
-      select jsonb_agg(jsonb_build_object(
-        'table', c.table_name,
-        'columns', (
-          select jsonb_agg(jsonb_build_object(
-            'column', col.column_name, 'type', col.data_type,
-            'nullable', col.is_nullable, 'default', col.column_default
-          ) order by col.ordinal_position)
-          from information_schema.columns col
-          where col.table_schema = 'public' and col.table_name = c.table_name
-        )
-      ) order by c.table_name)
-      from (select distinct table_name from information_schema.tables
-            where table_schema = 'public' and table_type = 'BASE TABLE') c
-    ),
-    'primary_keys', (
-      select jsonb_agg(jsonb_build_object('table', tc.table_name, 'column', kcu.column_name))
-      from information_schema.table_constraints tc
-      join information_schema.key_column_usage kcu
-        on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
-      where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = 'public'
-    ),
-    'foreign_keys', (
-      select jsonb_agg(jsonb_build_object(
-        'table', tc.table_name, 'column', kcu.column_name,
-        'references_table', ccu.table_name, 'references_column', ccu.column_name
-      ))
-      from information_schema.table_constraints tc
-      join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name
-      join information_schema.constraint_column_usage ccu on tc.constraint_name = ccu.constraint_name
-      where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = 'public'
-    ),
-    'check_constraints', (
-      select jsonb_agg(jsonb_build_object(
-        'table', conrelid::regclass::text, 'name', conname, 'definition', pg_get_constraintdef(oid)
-      ))
-      from pg_constraint where contype = 'c' and connamespace = 'public'::regnamespace
-    ),
-    'rls_enabled', (
-      select jsonb_agg(jsonb_build_object('table', relname, 'rls_enabled', relrowsecurity))
-      from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'
-    ),
-    'rls_policies', (
-      select jsonb_agg(jsonb_build_object(
-        'table', tablename, 'policy', policyname, 'cmd', cmd, 'roles', roles,
-        'using', qual, 'with_check', with_check
-      ))
-      from pg_policies where schemaname = 'public'
-    ),
-    'indexes', (
-      select jsonb_agg(jsonb_build_object('table', tablename, 'index', indexname, 'def', indexdef))
-      from pg_indexes where schemaname = 'public'
-    ),
-    'cron_jobs', (
-      select coalesce(jsonb_agg(jsonb_build_object(
-        'name', jobname, 'schedule', schedule, 'command', command, 'active', active
-      )), '[]'::jsonb)
-      from cron.job
-    )
-  )
-) as full_schema_report;
-```
-(If `cron.job` errors because `pg_cron` isn't enabled on a given project, drop the `cron_jobs` key and rerun.)
-
-### Tables (13), by name — columns are `column: type` — `NN` = NOT NULL, `= x` = DB-level default. `id` on every table is `uuid`, PK, default `gen_random_uuid()` unless noted.
-
-- **`patients`**: `name: text NN =''`, `age: int NN =0`, `gender: gender_type(enum) NN ='MALE'`, `room_no: text NN =''`, `medical_history/current_issues/allergies/emergency_contact/emergency_phone/primary_diagnosis: text NN =''`, `admission_date: date NN =CURRENT_DATE`, `is_archived: bool NN =false`.
-- **`staff`**: `id: uuid` (**no default** — must equal the Supabase Auth user id, assigned by the app at signup, not DB-generated), `name: text NN`, `name_lower: text` (nullable, unique — app never writes this directly; a DB trigger/generated column presumably maintains it for case-insensitive login lookups), `email: text NN =''`, `role: user_role(enum) NN ='STAFF'`, `phone: text NN =''`, `is_active: bool NN =true`, `joined_date: date NN =CURRENT_DATE`, `auth_email: text NN` (no default), `fcm_token: text NN =''`.
-- **`medications`**: `patient_id: uuid NN FK→patients`, `medicine_name/dose/quantity: text NN =''`, `schedule_time: time NN =CURRENT_TIME`, `scheduled_date: date NN =CURRENT_DATE`, `status: med_status(enum) NN ='PENDING'`, `administered_by: text NN =''`, `administered_at: timestamptz` (nullable), `notes: text NN =''`, `allotment_status: allotment_status(enum) NN ='NOT_ALLOTTED'`, `allotted_by_id: uuid FK→staff` (nullable), `allotted_by_name: text NN =''`, `allotted_at: timestamptz` (nullable), `allotment_scanned_code/administered_scanned_code: text NN =''`, `is_recurring: bool NN =true`, `reminder_sent_at/admin_alert_sent_at/superadmin_alert_sent_at: timestamptz` (nullable, watchdog-only — no Kotlin field references these), `tag: text NN ='MORNING'` (CHECK constrained to MORNING/AFTERNOON/EVENING — see section 20/21), `recurring_days: text NN =''` (see section 21 — added late, was missing for a while).
-- **`vitals`**: `patient_id: uuid NN FK→patients`, `date: date NN =CURRENT_DATE`, `time: time NN =CURRENT_TIME`, `pulse/bp/spo2/temperature/sugar_fasting/sugar_pp/signed_by: text NN =''`, `created_at: timestamptz NN =now()`.
-- **`utility_records`**: `patient_id: uuid NN FK→patients`, `date: date NN =CURRENT_DATE`, `time: time NN =CURRENT_TIME`, `quantities: jsonb NN ='{}'`, `issued_to_caregiver/issued_by_supervisor/checked_by: text NN =''`, `created_at: timestamptz NN =now()`.
-- **`utility_items`**: `name: text NN =''`, `unit: text NN ='pcs'`, `display_order: int NN =0`, `is_active: bool NN =true`.
-- **`doctor_visits`**: `patient_id: uuid NN FK→patients`, `doctor_name/specialty/notes/prescription_changes: text NN =''`, `date: date NN =CURRENT_DATE`, `time: time NN =CURRENT_TIME`, `next_visit_date: date` (nullable), `is_confirmed/is_archived: bool NN =false`.
-- **`care_notes`**: `patient_id: uuid NN FK→patients`, `staff_id: uuid FK→staff` (nullable), `staff_name: text NN =''`, `timestamp: timestamptz NN =now()`, `note: text NN =''`.
-- **`approval_requests`**: `entity_type: approval_entity_type(enum) NN` (no default), `entity_id: text NN =''`, `action: approval_action(enum) NN ='EDIT'`, `patient_id: uuid FK→patients` (nullable), `patient_name/requested_by_name/field_changed/old_value/new_value/reviewed_by_name/rejection_reason: text NN =''`, `requested_by_id/reviewed_by_id: uuid FK→staff` (nullable), `status: approval_status(enum) NN ='PENDING'`, `timestamp: timestamptz NN =now()`, `reviewed_at: timestamptz` (nullable).
-- **`allotment_requests`**: `medication_entry_id: uuid NN FK→medications`, `patient_id: uuid NN FK→patients`, `patient_name/medicine_name/dose/requested_by_name/fulfilled_by_name: text NN =''`, `scheduled_time: time NN =CURRENT_TIME`, `requested_by_id/fulfilled_by_id: uuid FK→staff` (nullable), `status: allotment_request_status(enum) NN ='PENDING'`, `timestamp: timestamptz NN =now()`, `fulfilled_at: timestamptz` (nullable).
-- **`audit_log`**: `action/target_patient_id/target_patient_name/details: text NN =''`, `performed_by_id: uuid FK→staff` (nullable), `performed_by_name: text NN =''`, `timestamp: timestamptz NN =now()`, `icon_name: text NN ='edit'`.
-- **`notifications`**: `recipient_staff_id: uuid FK→staff` (nullable), `recipient_role: user_role(enum)` (nullable), `type: notification_type(enum) NN` (no default), `title/message/target_route: text NN =''`, `timestamp: timestamptz NN =now()`, `is_read: bool NN =false`.
-- **`medication_evidence_log`**: `medication_id: uuid NN FK→medications`, `patient_id: uuid NN FK→patients`, `medicine_name: text NN =''`, `kind: text NN` (CHECK: `ALLOTMENT`/`ADMINISTRATION`), `staff_id: uuid FK→staff` (nullable), `staff_name/scanned_code: text NN =''`, `occurred_at: timestamptz NN =now()`.
-- **`medication_administration_log`** (added section 30): `medication_id: uuid NN FK→medications`, `patient_id: uuid NN FK→patients`, `medicine_name/dose: text NN =''`, `tag: text NN` (CHECK: `MORNING`/`AFTERNOON`/`EVENING`), `date: date NN`, `status: text NN` (CHECK: `ADMINISTERED`/`MISSED`), `administered_by/scanned_code: text NN =''`, `administered_at: timestamptz` (nullable), `created_at: timestamptz NN =now()`. `UNIQUE(medication_id, date)` — one row per dose per calendar day, insert-only (no update policy; client upserts with `ignoreDuplicates`).
-
-All `USER-DEFINED` columns above are real Postgres enum types (`gender_type`, `user_role`, `med_status`, `allotment_status`, `approval_status`, `approval_action`, `approval_entity_type`, `allotment_request_status`, `notification_type` — as of section 30 this last one also includes `MEDICATION_REMINDER`/`MEDICATION_MISSED_ALERT`/`MEDICATION_MISSED_ESCALATION`, missing since the feature was first built) — Kotlin sends/receives them as plain strings via `.name`/`.valueOf()`, which PostgREST coerces against the enum label, so a mismatched string (typo, or a Kotlin enum entry with no matching Postgres label) fails loudly rather than silently — good, but means adding a new Kotlin enum entry always needs a matching `ALTER TYPE ... ADD VALUE` migration too.
-
-**RLS**: enabled on all 13 tables. Broad pattern: `is_active_staff()` gates most SELECT/INSERT, `is_super_admin()` gates DELETE everywhere it's allowed at all and most sensitive UPDATEs (`patients`, `approval_requests`), `is_supervisor_or_above()` gates allotment-request fulfillment. `medications_insert`/`medications_delete` are Super-Admin-only (matches the client-side `SessionManager.isAdmin()` gate on Add/Edit/Delete Medication); `medications_update` allows `is_super_admin() OR is_active_staff()` (covers regular staff/supervisor marking doses given or allotted). `notifications_insert` is checked per notification `type` (see section 17).
-
-**`pg_cron` jobs**: `medication-watchdog` (every minute, active) — the only one that should exist post section-21 cleanup; `cleanup-evidence-photos` was found still active and was removed (section 21).
-
----
-
-## Security Hardening Backlog (deferred until UI/functionality reach prod level — do NOT start early per explicit instruction)
-
-- **Resolved: auto-logout timer.** 15 minutes idle, same for every role, no override — see section 26.
-- **Skipped, explicit team call**: `android:allowBackup`, client-side staff password policy, automated tests, and the `google-services.json` git-history cleanup were all explicitly reviewed and declined for now — not a gap, a decision.
-- **Resolved: `FLAG_SECURE`** — applied window-wide on `MainActivity` (section 28's era of work). Screenshots/screen recording of patient data now come back blank; confirmed live via `adb screencap` returning a 0-byte file while the app was focused with real patient data on screen.
-- **Deferred, explicit team call**: release signing config and `isMinifyEnabled` are both explicitly held until the app is fully feature-complete — not forgotten. When it's time: minify measured at **37.7MB → 24.3MB** (a real signed+minified build, verified to launch, log in, and hit Supabase/kotlinx.serialization correctly with zero crashes) — the pre-staged ProGuard rules already hold up.
-- **Resolved: GitHub PAT and Supabase account-level PAT** — both revoked by the team once active development wound down.
-- **Resolved: staff deletion now cleans up the Supabase Auth account** — see section 26 (`admin-delete-staff` Edge Function, deployed and wired in). The 5 pre-existing orphaned Auth accounts found on the live project were cleaned up directly.
-- **Resolved: Excel/Summary-sheet format** — done, see section 13.
-- **Resolved for Super Admin**: off-network login now works via the password-gated bypass in the Wi-Fi dialog (section 14). Staff/Supervisor still have no off-network path — known, not yet started.
-- **Resolved: stale merged feature branches** — `main` is the only branch left on the remote as of a later check; whatever removed the other four, they're gone.
-
----
-
-## What is Remaining (Future Scope)
-
-Backend integration, real authentication, push notification delivery, real-time sync, offline support, per-day medication history, and test account coverage (all previously listed here as open) are now **done** — see Technology Stack and section 1 above, "Push Notification System"/"Medication Deadline Reminders & Escalation" below, and sections 27 (offline), 30 (per-day history), and 31 (Staff-role testing) above. What's actually left:
-
-### 1. Security Hardening & Wi-Fi-Scoped Auth (Next Up)
-- Explicitly called out by the team as the remaining phase before this is considered feature-complete: a further security pass, plus restricting login/access to the facility's own Wi-Fi network.
-
----
-
-## Detailed Workflows
-
-### Staff Editing a Patient Workflow
-1. Staff logs in and navigates to the Patient Profile -> Details Tab.
-2. Staff modifies a field (e.g., Room Number) and clicks "Save".
-3. `PatientViewModel` detects the role is Staff. Instead of updating the repository, it generates an `ApprovalRequest` containing the `oldValue` and `newValue`.
-4. A Toast confirms to the Staff that the request was submitted.
-5. The Admin receives a pending approval in their Approval Queue.
-
-### Admin Approving a Request Workflow
-1. Admin opens the Approval Queue.
-2. Clicks on the pending request for the Room Number change.
-3. Clicks "Approve".
-4. `ApprovalRepository` marks the request as APPROVED and logs the reviewer's id/name.
-5. `ApprovalViewModel` applies the new Room Number directly to the actual Patient record via `PatientRepository.updatePatient`.
-6. An `AuditLogEntry` ("Edit Request Approved") is generated. Rejecting a request similarly logs an "Edit Request Rejected" entry, without touching the Patient record.
-
-### Admin Archiving a Patient Workflow
-1. Admin opens a patient's profile and taps the overflow menu (⋮) next to Edit.
-2. Taps "Archive Patient" and confirms in the dialog.
-3. `PatientRepository.archivePatient` flags the patient as archived; an `AuditLogEntry` ("Patient Archived") is generated, and the app navigates back to the Dashboard.
-4. The patient no longer appears in the default Dashboard list or search results. Toggling "Show Archived" (Admin-only) reveals them again, tagged with an "Archived" badge.
-
-### Staff Management Workflow
-1. Admin navigates to the Config tab.
-2. To remove a staff member temporarily: Clicks "Revoke". The staff member is flagged as inactive and cannot log in.
-3. To restore a staff member: Admin clicks "Activate" on the revoked card.
-4. To remove permanently: Admin clicks "Delete", destroying the record.
-5. The Admin's own card omits the "Revoke" button to prevent locking themselves out.
-6. When adding a staff member, Admin picks between the two operational roles — Regular Staff or Supervisor. (Super Admin accounts aren't created through this dialog.)
-
-### Utility Item Workflow
-1. Admin adds/removes item types in Config → Utility Items (e.g. "Syringes").
-2. Any patient's Utility tab immediately reflects the change: the "Add Utility Record" dialog renders one quantity field per active item, and the table gains/loses that column — no other code path needs updating.
-3. A `UtilityRecord` stores quantities as a `Map<UtilityItem.id, Int>` rather than fixed fields, which is what makes this possible.
-
-### Security hardening + regression pass (2026-10-03)
-- DB function grants tightened (migration `security_hardening_function_grants_search_path_login_lookup`): RLS helper functions (`is_super_admin`, `is_active_staff`, `is_supervisor_or_above`, `current_staff_role`) are executable by signed-in users only (no anon); the six trigger functions are not API-callable by anyone; the five guard functions have `search_path` pinned. `enforce_allowed_columns` must stay executable by `authenticated` (called from inside the guards as the invoking user).
-- `staff_login_lookup` must stay anon-callable (login resolves Name -> email before sign-in) and must return the REAL staff `id` — the app reads its own staff row by that id right after sign-in. An all-zero id broke every login for a few minutes (fixed by `fix_staff_login_lookup_return_real_id`). It now only resolves ACTIVE accounts.
-- Leaked-password protection is a dashboard switch (Auth -> Providers -> Password); it cannot be set via SQL.
-- Date bug fixed: supabase-kt omits a field equal to its Kotlin default (`encodeDefaults=false`), so a record whose `date` was "today" was sent WITHOUT a date and Postgres filled `CURRENT_DATE` (UTC) — records made 00:00-05:30 IST were stamped the previous day. `date`/`time`/`scheduled_date`/`admission_date`/`joined_date` on the write rows now carry `@EncodeDefault(ALWAYS)`. Records written earlier in that window stay as they were.
-- Utility "Issued By" now fills with the logged-in Supervisor's (or Admin's) name.
-- Cold start always shows the Login screen (session is restored in the background only for FCM/deep links) — existing behaviour, not a bug.
-- Known cosmetic: Config "Joined" date for a brand-new account can show the previous day for the same 00:00-05:30 IST reason (`joined_date` written before this fix).
-
-### 30. Admin "Mark Given" Override Now Validates the QR (2026-10-06)
-- **Bug:** the Med-tab override (Super Admin/Admin only; Scan tab isn't in their nav) saved *any* scanned/typed text with no check, and ignores the window. Staff using Somnath's login ticked Awantika's evening doses with `Suman Patil|EVENING`, evening doses with an AFTERNOON code, and a morning dose at 8:16 PM with an EVENING code.
-- **Fix:** `QrScanDialog` got an optional `validate: (String) -> String?`; the override passes `util/DoseQr.kt::doseQrMismatch`, which requires payload `<patient name>|<TAG>` to match the dose's patient (case/space-insensitive) and `tag`. Mismatch shows an error and discards the scan (typed codes too). The window is still skipped by design. The Scan tab is unchanged — its QR picks the meds, so it can't mismatch.
-- Records from 2026-10-05 20:02–20:16 (Awantika, 7 doses) were ticked under wrong QRs; not auto-corrected.
-- **Offline fix (same day):** `ConnectivityObserver.isOnline` stuck true with no network (it re-read `activeNetwork` inside `onLost`, which can still return the dropped network), so Scan-tab ticks hit the server, failed and were neither applied nor queued. It now derives state from a set of validated networks kept by the callbacks. `OfflineMedicationRepository.markAdministered` also queues on a network-level failure (`HttpRequestException`) even when "online", so a dead-zone window can't lose a tick; server-side errors still surface. Verified on emulator with airplane mode: banner shows, tick saved offline, replayed once on reconnect (status, evidence, history); the dead-zone catch path itself couldn't be forced.
-- Open: staff should log in as themselves (Scan tab) instead of Somnath's account; tick window vs T-15 reminder gap (window opens at T) — owner's decision.
-
-### 31. Round Windows (2026-10-08)
-- **Rule (client request):** a dose can only be given inside its round's window — default Morning 8:00–9:00 AM, Afternoon 12:30–1:30 PM, Evening 7:00–9:00 PM — regardless of the medicine's own scheduled time. Strict: `[start, end)`; outside it the Scan tab shows "Not due yet"/"Window closed". Only the Admin override on the Med tab (still QR-validated, section 30) can mark outside it. The Scan tab also re-checks at the moment of confirming, so a list left open past the end can't mark late.
-- **Missed** = the round's window closed without the dose given: drives `OVERDUE` (`withComputedStatus`), the dashboard/summary Missed counts, and the watchdog's Missed alert + audit + history row. Reminders (T-15 staff, T supervisor, T+15 admin heads-up) still use each medicine's own time; the T+15 heads-up is skipped once the window has closed.
-- **Editable:** Config → Round Times (Admin/Super Admin; audit entry "Round Times Changed"). Stored in `round_windows` (tag PK, start/end, CHECK start<end, RLS: active staff read, admins update). `util/RoundWindows.kt` holds the values (in memory + SharedPreferences for cold start/offline, defaults if never fetched) and refreshes on every session start (`SessionManager.setCurrentStaff`) and after a save; other phones pick up a change at their next login.
-- **Not enforced server-side:** the window is an app-side gate (an offline tick replays later by design).
-- Watchdog redeployed as v9. Removed `DOSE_WINDOW_MINUTES`. The medicine form's "tag vs time" warning (`DoseTag.matches`) is a separate loose check and unchanged.
-
-### Notification Workflow
-1. A real event happens (staff submits an edit request, Super Admin approves/rejects one, a daily-task watchdog alert fires, a dose's deadline is approaching/missed).
-2. The relevant ViewModel (or Edge Function) calls `NotificationRepository.add(...)`/inserts into `notifications` with either a specific `recipientStaffId` or a broadcast `recipientRole`.
-3. Whoever's affected sees the bell badge update (Dashboard shows it) and can open the Notifications screen.
-4. Tapping a notification marks it read and navigates to its `targetRoute` — a patient-targeted one deep-links to the right tab (`patient/{id}?tab={n}`, see "Notification deep-linking" above), an approval-request one goes to the static `"approval"` route.
-
-### Supervisor Medication Edit/Delete/Add Workflow
-1. Supervisor opens a patient's Med tab and adds a new medication, or taps the edit/delete icon on an existing one (same UI Super Admin uses).
-2. Since the requester isn't Super Admin, `MarViewModel.addMedication`/`requestEditMedication`/`requestDeleteMedication` always submits an `ApprovalRequest` (`entityType = MEDICATION`, `action = ADD/EDIT/DELETE`) instead of applying the change directly — there's no 24h grace window here, unlike Vitals/Utility/Care Notes. An ADD request carries the whole draft entry as a serialized `NewMedicationPayload` in `newValue` (no existing row to diff a single field against); EDIT submits one request per changed field, mirroring the Vitals/Utility pattern.
-3. Super Admin gets an "Medicine Add/Edit/Delete Request" notification naming the patient, routed to the Approval Queue.
-4. Approving applies the change via `MedicationRepository` (insert/update/delete) and logs to Audit; rejecting just logs to Audit. Either way the Supervisor gets an outcome notification deep-linking to that patient's Med tab (`?tab=2`).
+# Kalaza Care — Project State (current, condensed)
+
+Android clinic-management app (Kotlin, Jetpack Compose/Material3, MVVM + StateFlow, min SDK 26 / target 35) on **Supabase** (Postgres via `postgrest-kt`, Auth, Realtime, Edge Functions, `pg_cron`) with **FCM** for push. Project ref `acafqfjpbilakvnaxamb`, package `com.kalazacare.app`. The repo holds the Android app only; the backend lives in the Supabase project (schema, RLS, functions) — `context/backend/` keeps the rollout scripts. Older history (dated fix diary, full schema dump) is in git history of this file.
+
+## Roles and screens
+- **Super Admin / Admin** (`SessionManager.isAdmin()` is true for both; only the Super Admin creates/revokes/deletes Admins, and the Super Admin can never be removed — enforced client-side, in two Edge Functions and by a DB trigger). Nav: Overview, Patients, Approvals, Audit Log, Config, Summary. DB maps ADMIN→SUPER_ADMIN (`current_staff_role()`, `is_super_admin()`), so notifications to `SUPER_ADMIN` reach both.
+- **Supervisor** and **Staff**: nav Tasks, Patients, Scan. Supervisor may add/edit/delete medicines, but every one goes through the Approval Queue (no grace window). Staff edits to patient data create approval requests; vitals/utility/care-note edits within 24h apply directly, later ones need approval.
+- **Login is Name + password** (`staff_login_lookup` RPC resolves name → synthetic auth email; it must stay anon-callable and **must return the real staff id**). Login is blocked off the facility Wi-Fi (gateway-IP allow-list in `WifiChecker.kt`); Super Admin can bypass with their password. 15-minute idle auto-logout for everyone. Cold start always shows Login.
+- Patient profile tabs: Info 0, Vitals 1, Med 2 (Today/History), Utilities 3, Visits 4, Notes 5 — notification deep link is `patient/{id}?tab={n}`. Summary has a date-range report and per-patient `.xlsx` export. Staff accounts are created by Super Admin in Config with an assigned password.
+
+## Medication rules (current)
+- Every medicine has a **scheduled time T**, a `DoseTag` (MORNING/AFTERNOON/EVENING — used only to match the QR) and is recurring (optionally weekday-restricted) or one-off.
+- **Giving window = T to T+30 min** (`DOSE_WINDOW_MINUTES`), strict. Outside it the Scan tab shows "Not due yet"/"Window closed" and nothing can be ticked; the Scan list re-evaluates every 10 s and re-checks at confirm time. Only the **Admin "Mark Given" override** (Med tab) can mark outside the window, and it still requires a QR matching the dose's patient and round (`util/DoseQr.kt`).
+- **Scan tab**: QR payload is `<patient name>|<TAG>` (live camera or manual entry); lists that patient's doses for the round; tick several, 6-second review dialog, confirm. Evidence is `SCAN_TAB:<name>|<TAG>` in `medication_evidence_log`.
+- **Trusted clock** (`util/TrustedClock.kt`): the window is judged on server time (RPC `server_time()`) carried forward with `SystemClock.elapsedRealtime()`, so editing the phone clock does nothing and it works offline. A reboot invalidates the baseline until the next online sync; until then ticking is blocked ("Clock not synced"). All window math is IST.
+- **Status**: PENDING until T+30, then OVERDUE ("Missed"). A recurring row stays ADMINISTERED overnight in the DB; "given" always means given *today* (client `withComputedStatus`, watchdog).
+- **Alerts** (`medication-watchdog`, every minute): T-15 → Staff + Supervisor "due soon"; T → Staff + Supervisor "due now"; T+30 → Missed to Supervisor + Super Admin/Admin plus an `audit_log` row and a MISSED row in `medication_administration_log`. Each fires once per IST day per dose (`reminder_sent_at`, `due_now_sent_at`, `superadmin_alert_sent_at`). Missed is skipped if the window closed over 2 h ago, and for a dose created after its window closed. Alerts are not bundled in data; on the phone, pushes are grouped under one summary that alone makes a sound.
+- **History**: `medication_administration_log` (one row per dose per day, ADMINISTERED/MISSED) backs the Med → History tab.
+- **Server enforcement** (not yet live — see Rollout): trigger `medications_window_guard` stamps live ticks with server time and rejects non-admin ticks outside T..T+30; ticks replayed from the offline queue carry `recorded_offline = true` and keep the phone-recorded (trusted) time.
+
+## Offline
+Room cache (`cached_rows`, generic JSON of the same `*Row` DTOs) + write queue (`SyncManager`). Reads: network+cache online, cache offline. Writes queue and replay on reconnect; mutating ops re-check server state and flag conflicts (Config → Sync Conflicts). `ConnectivityObserver` tracks validated networks from callbacks; a network failure while "online" falls through to the queue (mark-administered). Offline ticks need the trusted clock.
+
+## Performance practices (keep these)
+- Per-patient lists (vitals, utility, visits, notes, medication history) and reports fetch the **last 30 days** (`util/RecentRecords`; profile "Show all" widens it). Reports fetch only their date range. Audit log loads 30 days with "load 30 more". Approvals: pending + last 30 days. Always **order + filter server-side** — PostgREST silently caps unordered full-table reads at 1000 rows.
+- Notifications: 14-day window, newest 50 with "Load more", unread badge is a COUNT query. Realtime refreshes are debounced (1.5 s) in `subscribeToTableChanges`; each ViewModel subscription is cancelled with its scope (a past channel leak slowed long sessions).
+- DB: indexes on the "recent, newest first" columns; daily `cron-log-purge` (pg_cron kept ~135k rows); notifications retention job.
+
+## Backend facts
+- **Edge Functions** (all `verify_jwt = false`): `send-push` (database webhook on `notifications` insert → FCM data-only message; clears unregistered tokens), `medication-watchdog`, `daily-task-watchdog` (vitals due 09:00/escalate 09:30, utilities due 21:30/escalate 22:00 IST), `admin-reset-password`, `admin-delete-staff` (also deletes the Auth user). Deploy through the Supabase Management API/MCP, not the CLI.
+- **RLS** on every table: `is_active_staff()` gates most reads/writes, `is_super_admin()` the sensitive ones. Guard triggers (`staff_self_update_guard`, `medications_partial_update_guard`) restrict which columns non-admins may update via `enforce_allowed_columns` — **a new column a client writes must be added to that allow-list** (a past bug silently blocked FCM token saves). Revoking function EXECUTE from `anon` alone does nothing while PUBLIC has it.
+- Tables: patients, staff, medications (incl. `recorded_offline`, `*_sent_at`), vitals, utility_records, utility_items, doctor_visits, care_notes, approval_requests, audit_log, notifications, medication_evidence_log, medication_administration_log (the old allotment tables are gone). Timestamps are `timestamptz` (UTC); the clinic and all window logic are IST.
+- **supabase-kt Json has `encodeDefaults = false`**: a field equal to its Kotlin default is omitted from requests. Fields that must always be sent (dates/times with DB defaults, tag, recurring_days, gender, joined_date…) carry `@EncodeDefault(ALWAYS)`.
+
+## Build, test, release
+- Release build: R8 minify + resource shrink, signed with the **laptop debug key** (`~/.android/debug.keystore`, SHA-256 `FC:BC:5A:AD:…:6F:FD:9E`) so phones update in place; if that key is lost every phone needs a one-time reinstall. Back it up. `allowBackup=false`, no cleartext. ProGuard rules for kotlinx.serialization are in `app/proguard-rules.pro`; R8-only crashes need a release-build test.
+- Production flags: `FLAG_SECURE` (MainActivity, blocks screenshots) and `WIFI_GATE_ENABLED` (WifiChecker.kt) **must be ON** in shipped builds. For emulator/phone test builds comment out `FLAG_SECURE` and set the gate to false, build, then restore both immediately.
+- Test habits that mattered: test with real role accounts (create QA accounts, delete after); never create test doses the watchdog will alert on (alerts reach real Supervisor/Super Admin phones — create doses after their window closed so the watchdog skips them); delete test rows with narrow filters; set Postgres roles via `set local role` + `request.jwt.claims` inside a rolled-back DO block to test RLS/triggers.
+- Emulator driving: AVD `android-34 google_apis_playstore x86_64`, uiautomator dumps, `adb input text` needs `|` escaped. The Play-Store image can't change its clock (no root).
+
+## Rollout status (2026-10-13)
+Version **1.0.3** (versionCode 4) is the release build. Order: (1) ship the APK to every phone; (2) **then** the switch: deploy `context/backend/medication-watchdog_NEW_deploy_at_switch.ts`, apply `context/backend/02_switch.sql` PART A (server window trigger, drop `admin_alert_sent_at`, notification retention 14 d, watchdog schedules without a key), and after an explicit go-ahead PART B (wipe `notifications`, `audit_log`, `medication_evidence_log`; history table kept). Until the switch, the deployed watchdog still uses the older round-window rules (v10). `01_prep_APPLIED.sql` is already applied (server_time, `recorded_offline`, indexes, cron purge).
+- Accounts: only Somnath (Super Admin) and Narendra (Supervisor) exist; Staff accounts are still to be created. Somnath's password must be changed (it was shared in chat).
+- Handover: GitHub stays with Harsh; Supabase project (functions + secrets) and the Firebase/FCM project are to be transferred after the APK rollout; Harsh provides updates until it runs smoothly.
+
+## Known and accepted
+Cold start shows Login; unread badge shows "99+"; "Joined" date can show the previous day for staff created 00:00–05:30 IST; the window is also an app-side gate (offline ticks are accepted later, flagged); anyone knowing the watchdog URL could invoke it (idempotent); leaked-password protection off by choice; on a phone not set to IST, record timestamps display in the phone's zone while window logic stays IST.

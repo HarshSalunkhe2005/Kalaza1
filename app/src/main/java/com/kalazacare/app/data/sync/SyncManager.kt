@@ -54,7 +54,7 @@ internal data class EditPayload(val id: String, val oldRowJson: String, val newR
 internal data class IdPayload(val id: String)
 
 @kotlinx.serialization.Serializable
-internal data class MarkAdministeredPayload(val id: String, val staffName: String, val scannedCode: String)
+internal data class MarkAdministeredPayload(val id: String, val staffName: String, val scannedCode: String, val at: String? = null)
 
 @kotlinx.serialization.Serializable
 internal data class ApprovalReviewPayload(
@@ -181,7 +181,7 @@ class SyncManager(
                 current == null -> "Dose no longer exists — it may have been deleted."
                 current.status == com.kalazacare.app.data.model.MedStatus.ADMINISTERED ->
                     "${current.medicineName} was already marked given by someone else while this device was offline."
-                else -> { medicationRepo.markAdministered(p.id, p.staffName, p.scannedCode); null }
+                else -> { medicationRepo.markAdministered(p.id, p.staffName, p.scannedCode, p.at ?: com.kalazacare.app.util.TrustedClock.nowIso()); null }
             }
         }
         PendingOpType.APPROVAL_REVIEW -> {

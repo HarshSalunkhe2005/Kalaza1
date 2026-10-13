@@ -21,17 +21,14 @@
 #-renamesourcefileattribute SourceFile
 
 # ─────────────────────────────────────────────────────────────────────────────
-# kotlinx.serialization — required once isMinifyEnabled is turned on.
-# Every @Serializable class here (the *Row DTOs in SupabaseDataRepositories.kt/
-# SupabaseAuthRepository.kt, MedicationEvidenceRow, etc.) is (de)serialized by
-# a generated $$serializer that R8 can't see through reflection alone; without
-# these rules a release build would compile fine and then throw
-# SerializationException at runtime the first time it hits the network —
-# exactly the kind of "works in debug, breaks in release" gap that makes
-# isMinifyEnabled risky to flip without testing. Not currently in effect
-# (isMinifyEnabled is still false) — added ahead of time so enabling it later
-# is a smaller, better-understood step. Standard rules per kotlinx.serialization's
-# own docs: https://github.com/Kotlin/kotlinx.serialization/blob/master/rules/common.pro
+# Release build rules (R8 is ON: isMinifyEnabled + isShrinkResources in build.gradle.kts).
+# "Works in debug, breaks in release" shows up as a crash the first time a code path runs, so every
+# release build is exercised end to end (all four roles) before it ships — see context/.
+
+# kotlinx.serialization — every @Serializable class (the *Row DTOs, payloads) is (de)serialized by a
+# generated $$serializer that R8 can't see through reflection alone; without these rules a release build
+# compiles fine and then throws SerializationException on the first network call.
+# https://github.com/Kotlin/kotlinx.serialization/blob/master/rules/common.pro
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
 -keep,includedescriptorclasses class com.kalazacare.app.**$$serializer { *; }
@@ -41,3 +38,19 @@
 -keepclasseswithmembers class com.kalazacare.app.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# Keep readable stack traces in the in-app crash screen.
+-keepattributes SourceFile,LineNumberTable
+
+# Drop chatty debug logging from the release build (errors/warnings are kept).
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
+# Ktor/Supabase reference optional JVM-only classes that don't exist on Android.
+-dontwarn org.slf4j.**
+-dontwarn java.lang.management.**
+-dontwarn javax.naming.**
+-dontwarn org.codehaus.mojo.animal_sniffer.**

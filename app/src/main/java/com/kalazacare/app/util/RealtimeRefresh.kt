@@ -6,7 +6,9 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -33,13 +35,15 @@ import kotlinx.coroutines.withContext
  * together, so cancelling it runs `unsubscribe()` in the `finally` block
  * (wrapped in NonCancellable since it's itself a suspend network call).
  */
+@OptIn(FlowPreview::class)
 fun subscribeToTableChanges(scope: CoroutineScope, table: String, onChange: () -> Unit) {
     scope.launch {
         val channel = SupabaseClients.main.realtime.channel("changes-$table-${System.nanoTime()}")
         try {
             val changeFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") { this.table = table }
             channel.subscribe()
-            changeFlow.collect { onChange() }
+            // A burst of changes (e.g. a whole round's alerts landing at once) refreshes once, not per row.
+            changeFlow.debounce(1500).collect { onChange() }
         } finally {
             withContext(NonCancellable) {
                 runCatching { channel.unsubscribe() }

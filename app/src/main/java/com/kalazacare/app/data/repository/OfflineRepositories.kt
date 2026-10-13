@@ -126,14 +126,14 @@ class OfflineVitalsRepository(
     private val connectivity: ConnectivityObserver,
     private val sync: SyncManager,
 ) : VitalsRepository {
-    override suspend fun getVitalsForPatient(patientId: String): List<VitalRecord> {
+    override suspend fun getVitalsForPatient(patientId: String, since: LocalDate?): List<VitalRecord> {
         if (connectivity.isOnline.value) {
-            val records = remote.getVitalsForPatient(patientId)
+            val records = remote.getVitalsForPatient(patientId, since)
             records.forEach { cache.upsertRow(Tables.VITALS, it.id, it.toRow()) }
             return records
         }
         return cache.readAllRows<VitalRow>(Tables.VITALS).map { it.toDomain() }
-            .filter { it.patientId == patientId }.sortedByDescending { it.date }
+            .filter { it.patientId == patientId && (since == null || !it.date.isBefore(since)) }.sortedByDescending { it.date }
     }
 
     override suspend fun getVitalsForDate(date: LocalDate): List<VitalRecord> =
@@ -211,40 +211,41 @@ class OfflineMedicationRepository(
     override suspend fun updateMedication(entry: MedicationEntry) = remote.updateMedication(entry)
     override suspend fun deleteMedication(id: String) = remote.deleteMedication(id)
 
-    override suspend fun markAdministered(id: String, staffName: String, scannedCode: String) {
+    override suspend fun markAdministered(id: String, staffName: String, scannedCode: String, recordedOfflineAt: String?) {
         if (connectivity.isOnline.value) {
             // "Online" can lag reality (Wi-Fi with no internet stays validated for a while), so a
             // network failure here falls through to the offline queue instead of losing the tick.
             // Other errors (RLS, bad id) still surface. Replay is idempotent apart from a possible
             // duplicate evidence row if the failure hit between the status update and that insert.
             try {
-                remote.markAdministered(id, staffName, scannedCode)
+                remote.markAdministered(id, staffName, scannedCode, recordedOfflineAt)
                 return
             } catch (_: io.github.jan.supabase.exceptions.HttpRequestException) {
                 // fall through to the queue
             }
         }
+        val at = recordedOfflineAt ?: nowIso()
         cache.readRow<MedicationRow>(table, id)?.let {
             cache.upsertRow(table, id, it.copy(
                 status = MedStatus.ADMINISTERED.name, administeredBy = staffName,
-                administeredAt = nowIso(), administeredScannedCode = scannedCode,
+                administeredAt = at, administeredScannedCode = scannedCode,
             ))
         }
-        sync.enqueue(PendingOpType.MED_MARK_ADMINISTERED, syncJson.encodeToString(MarkAdministeredPayload(id, staffName, scannedCode)))
+        sync.enqueue(PendingOpType.MED_MARK_ADMINISTERED, syncJson.encodeToString(MarkAdministeredPayload(id, staffName, scannedCode, at)))
     }
 
     // Compliance report — not cached; unavailable while offline (an empty result, not a crash).
-    override suspend fun getEvidenceLog(): List<MedicationEvidenceEvent> =
-        if (connectivity.isOnline.value) remote.getEvidenceLog() else emptyList()
+    override suspend fun getEvidenceLog(since: LocalDate?): List<MedicationEvidenceEvent> =
+        if (connectivity.isOnline.value) remote.getEvidenceLog(since) else emptyList()
 
-    override suspend fun getAdministrationHistory(patientId: String): List<MedicationHistoryEntry> {
+    override suspend fun getAdministrationHistory(patientId: String, since: LocalDate?): List<MedicationHistoryEntry> {
         if (connectivity.isOnline.value) {
-            val history = remote.getAdministrationHistory(patientId)
+            val history = remote.getAdministrationHistory(patientId, since)
             history.forEach { cache.upsertRow(Tables.MEDICATION_HISTORY, it.id, it.toRow()) }
             return history
         }
         return cache.readAllRows<MedicationHistoryRow>(Tables.MEDICATION_HISTORY).map { it.toDomain() }
-            .filter { it.patientId == patientId }.sortedByDescending { it.date }
+            .filter { it.patientId == patientId && (since == null || !it.date.isBefore(since)) }.sortedByDescending { it.date }
     }
 }
 
@@ -258,14 +259,14 @@ class OfflineUtilityRepository(
     private val connectivity: ConnectivityObserver,
     private val sync: SyncManager,
 ) : UtilityRepository {
-    override suspend fun getUtilityForPatient(patientId: String): List<UtilityRecord> {
+    override suspend fun getUtilityForPatient(patientId: String, since: LocalDate?): List<UtilityRecord> {
         if (connectivity.isOnline.value) {
-            val records = remote.getUtilityForPatient(patientId)
+            val records = remote.getUtilityForPatient(patientId, since)
             records.forEach { cache.upsertRow(Tables.UTILITY_RECORDS, it.id, it.toRow()) }
             return records
         }
         return cache.readAllRows<UtilityRecordRow>(Tables.UTILITY_RECORDS).map { it.toDomain() }
-            .filter { it.patientId == patientId }.sortedByDescending { it.date }
+            .filter { it.patientId == patientId && (since == null || !it.date.isBefore(since)) }.sortedByDescending { it.date }
     }
 
     override suspend fun getUtilityForDate(date: LocalDate): List<UtilityRecord> =
@@ -329,14 +330,14 @@ class OfflineDoctorVisitRepository(
     private val connectivity: ConnectivityObserver,
     private val sync: SyncManager,
 ) : DoctorVisitRepository {
-    override suspend fun getVisitsForPatient(patientId: String): List<DoctorVisit> {
+    override suspend fun getVisitsForPatient(patientId: String, since: LocalDate?): List<DoctorVisit> {
         if (connectivity.isOnline.value) {
-            val visits = remote.getVisitsForPatient(patientId)
+            val visits = remote.getVisitsForPatient(patientId, since)
             visits.forEach { cache.upsertRow(Tables.DOCTOR_VISITS, it.id, it.toRow()) }
             return visits
         }
         return cache.readAllRows<DoctorVisitRow>(Tables.DOCTOR_VISITS).map { it.toDomain() }
-            .filter { it.patientId == patientId }.sortedByDescending { it.date }
+            .filter { it.patientId == patientId && (since == null || !it.date.isBefore(since)) }.sortedByDescending { it.date }
     }
 
     override suspend fun getVisitsForDate(date: LocalDate): List<DoctorVisit> =
@@ -386,14 +387,14 @@ class OfflineCareNoteRepository(
     private val connectivity: ConnectivityObserver,
     private val sync: SyncManager,
 ) : CareNoteRepository {
-    override suspend fun getNotesForPatient(patientId: String): List<CareNote> {
+    override suspend fun getNotesForPatient(patientId: String, since: LocalDate?): List<CareNote> {
         if (connectivity.isOnline.value) {
-            val notes = remote.getNotesForPatient(patientId)
+            val notes = remote.getNotesForPatient(patientId, since)
             notes.forEach { cache.upsertRow(Tables.CARE_NOTES, it.id, it.toRow()) }
             return notes
         }
         return cache.readAllRows<CareNoteRow>(Tables.CARE_NOTES).map { it.toDomain() }
-            .filter { it.patientId == patientId }.sortedByDescending { it.timestamp }
+            .filter { it.patientId == patientId && (since == null || !it.timestamp.toLocalDate().isBefore(since)) }.sortedByDescending { it.timestamp }
     }
 
     override suspend fun addNote(note: CareNote) {
@@ -429,13 +430,15 @@ class OfflineApprovalRepository(
     private val connectivity: ConnectivityObserver,
     private val sync: SyncManager,
 ) : ApprovalRepository {
-    override suspend fun getAllRequests(): List<ApprovalRequest> {
+    override suspend fun getAllRequests(since: LocalDate?): List<ApprovalRequest> {
         if (connectivity.isOnline.value) {
-            val all = remote.getAllRequests()
+            val all = remote.getAllRequests(since)
             all.forEach { cache.upsertRow(Tables.APPROVAL_REQUESTS, it.id, it.toRow()) }
             return all
         }
-        return cache.readAllRows<ApprovalRequestRow>(Tables.APPROVAL_REQUESTS).map { it.toDomain() }.sortedByDescending { it.timestamp }
+        return cache.readAllRows<ApprovalRequestRow>(Tables.APPROVAL_REQUESTS).map { it.toDomain() }
+            .filter { since == null || it.status == ApprovalStatus.PENDING || !it.timestamp.toLocalDate().isBefore(since) }
+            .sortedByDescending { it.timestamp }
     }
 
     override suspend fun getPendingRequests(): List<ApprovalRequest> =
@@ -481,16 +484,16 @@ class OfflineNotificationRepository(
     private val cache: CachedRowDao,
     private val connectivity: ConnectivityObserver,
 ) : NotificationRepository {
-    override suspend fun getForRecipient(staffId: String, role: UserRole): List<AppNotification> {
+    override suspend fun getForRecipient(staffId: String, role: UserRole, limit: Int): List<AppNotification> {
         if (connectivity.isOnline.value) {
-            val list = remote.getForRecipient(staffId, role)
+            val list = remote.getForRecipient(staffId, role, limit)
             list.forEach { cache.upsertRow(Tables.NOTIFICATIONS, it.id, it.toRow()) }
             return list
         }
         val cutoff = java.time.LocalDateTime.now().minusDays(NOTIFICATION_WINDOW_DAYS)
         return cache.readAllRows<NotificationRow>(Tables.NOTIFICATIONS).map { it.toDomain() }
             .filter { it.recipientStaffId == staffId || it.recipientRole == role.notificationRole() }
-            .filter { it.timestamp.isAfter(cutoff) }.sortedByDescending { it.timestamp }
+            .filter { it.timestamp.isAfter(cutoff) }.sortedByDescending { it.timestamp }.take(limit)
     }
 
     override suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int =
@@ -518,13 +521,14 @@ class OfflineAuditRepository(
     private val cache: CachedRowDao,
     private val connectivity: ConnectivityObserver,
 ) : AuditRepository {
-    override suspend fun getAllLogs(): List<AuditLogEntry> {
+    override suspend fun getAllLogs(since: LocalDate?): List<AuditLogEntry> {
         if (connectivity.isOnline.value) {
-            val logs = remote.getAllLogs()
+            val logs = remote.getAllLogs(since)
             logs.forEach { cache.upsertRow(Tables.AUDIT_LOG, it.id, it.toRow()) }
             return logs
         }
-        return cache.readAllRows<AuditLogRow>(Tables.AUDIT_LOG).map { it.toDomain() }.sortedByDescending { it.timestamp }
+        return cache.readAllRows<AuditLogRow>(Tables.AUDIT_LOG).map { it.toDomain() }
+            .filter { since == null || !it.timestamp.toLocalDate().isBefore(since) }.sortedByDescending { it.timestamp }
     }
 
     override suspend fun addLog(entry: AuditLogEntry) {

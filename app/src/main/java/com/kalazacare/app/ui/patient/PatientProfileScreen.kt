@@ -77,7 +77,10 @@ fun PatientProfileScreen(
     val careNotes by careNoteVm.notes.collectAsState()
 
     var loadAttempted by remember { mutableStateOf(false) }
+    // Record lists default to the last 30 days (util/RecentRecords); "Show all" widens them for this profile.
+    var showAllRecords by remember { mutableStateOf(false) }
     LaunchedEffect(patientId) {
+        com.kalazacare.app.util.RecentRecords.showAll = false
         patientVm.load(patientId)
         vitalsVm.load(patientId)
         marVm.load(patientId)
@@ -245,6 +248,29 @@ fun PatientProfileScreen(
                         selectedContentColor = KalazaRed,
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            if (!showAllRecords && pagerState.currentPage != 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Showing the last ${com.kalazacare.app.util.RecentRecords.DAYS} days",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        com.kalazacare.app.util.RecentRecords.showAll = true
+                        showAllRecords = true
+                        vitalsVm.load(patientId)
+                        marVm.loadHistory(patientId)
+                        utilityVm.load(patientId)
+                        doctorVisitVm.load(patientId)
+                        careNoteVm.load(patientId)
+                    }) { Text("Show all") }
                 }
             }
 
@@ -715,7 +741,7 @@ private fun MarTabContent(
     adminMarkTarget?.let { entry ->
         QrScanDialog(
             title = "Mark ${entry.medicineName} Given",
-            message = "Admin override — skips the round's time window only. Scan this patient's ${entry.tag.name.lowercase()} QR (or type its code); any other patient's or round's code is rejected.",
+            message = "Admin override — skips the 30-minute window only. Scan this patient's ${entry.tag.name.lowercase()} QR (or type its code); any other patient's or round's code is rejected.",
             validate = { code -> com.kalazacare.app.util.doseQrMismatch(code, patientName, entry.tag) },
             onConfirm = { scannedCode ->
                 marVm.markAdministeredAsAdmin(entry, scannedCode)
@@ -770,7 +796,7 @@ private fun AddMedicationDialog(
                 com.kalazacare.app.ui.components.DoseTagPicker(selected = tag, onSelect = { tag = it })
                 if (tagTimeMismatch) {
                     Text(
-                        "${DateUtils.formatTime(scheduleTime)} is outside the ${tag?.label()} round's window — pick a time inside it, or change the tag.",
+                        "${DateUtils.formatTime(scheduleTime)} doesn't fall in ${tag?.label()}'s usual window — pick a time that matches, or change the tag.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
                     )

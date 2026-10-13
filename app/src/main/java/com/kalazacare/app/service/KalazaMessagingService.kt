@@ -28,11 +28,13 @@ import kotlinx.coroutines.launch
 // takes effect for anyone already installed if the channel ID itself changes.
 const val NOTIFICATION_CHANNEL_ID = "kalaza_general_v2"
 const val EXTRA_TARGET_ROUTE = "targetRoute"
+private const val ALERT_GROUP = "kalaza_alerts"
+private const val SUMMARY_NOTIFICATION_ID = 1
 
 /**
- * Receives pushes sent by the Cloud Function (see functions/index.js) that
- * triggers on every new `notifications` Firestore document. The Cloud
- * Function sends a data-only payload (no `notification` block) precisely so
+ * Receives pushes sent by the `send-push` Edge Function (deployed in the Supabase project), which a
+ * database webhook triggers on every new `notifications` row. It
+ * sends a data-only payload (no `notification` block) precisely so
  * this method — not the system's automatic tray handling — always decides
  * how to display it, giving consistent behavior whether the app is
  * foregrounded, backgrounded, or fully killed.
@@ -66,6 +68,9 @@ class KalazaMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // A whole round's alerts can land at once (every dose due at 8:30). They're grouped under one
+        // expandable summary and only the summary makes a sound, so a burst is one ping, not dozens
+        // of pop-ups. Each alert stays its own entry, and its own row in the in-app list.
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
@@ -73,12 +78,27 @@ class KalazaMessagingService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setGroup(ALERT_GROUP)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .build()
+        val summary = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Kalaza Care")
+            .setContentText("New alerts")
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setGroup(ALERT_GROUP)
+            .setGroupSummary(true)
+            .setOnlyAlertOnce(true)
             .build()
 
         val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (canNotify) {
-            NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), notification)
+            val manager = NotificationManagerCompat.from(this)
+            manager.notify(System.currentTimeMillis().toInt(), notification)
+            manager.notify(SUMMARY_NOTIFICATION_ID, summary)
         }
     }
 

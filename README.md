@@ -17,7 +17,7 @@ An Android application for managing day-to-day operations at the Kalaza Care ass
 - **Role-based access** — Super Admin, Supervisor, and Staff, each with a distinct dashboard, permission set, and navigation
 - **Patient management** — demographics, medical history, admission/archival, searchable dashboard
 - **Medication tracking (Med tab)** — recurring and one-time doses, dose-tag scheduling (Morning/Afternoon/Evening), a two-checkpoint allotment → administration workflow, and a per-day administration history view
-- **QR-scan evidence** — allotting or administering a dose requires scanning the patient's QR code; a dedicated Scan tab supports batch confirmation for an entire dosing round, gated to each round's time window (Morning/Afternoon/Evening, editable in Config → Round Times); the Admin override on the Med tab skips that window but still requires the matching patient/round QR
+- **QR-scan evidence** — doses are given by scanning the patient's QR code on a dedicated Scan tab (batch confirmation per round); each dose can only be ticked from its scheduled time until 30 minutes later, judged on a server-verified clock. An Admin override handles late corrections and still requires the matching patient/round QR
 - **Vitals, Utility logs, Doctor Visits, Care Notes** — per-patient clinical records, with a 24-hour grace period before an edit requires approval
 - **Approval Queue** — Staff edits route through Super Admin review instead of applying directly
 - **Audit Log** — a permanent, read-only record of key actions across the app
@@ -41,7 +41,6 @@ app/src/main/java/com/kalazacare/app/
 ├── service/              # Firebase Cloud Messaging service
 └── util/                 # Session management, Wi-Fi gating, date/time helpers
 
-supabase/functions/       # Edge Functions (push delivery, medication watchdog, admin staff actions)
 context/                  # Project requirements and running implementation history
 ```
 
@@ -61,13 +60,13 @@ context/                  # Project requirements and running implementation hist
 4. Open in Android Studio and sync Gradle, or build from the command line:
 
 ```bash
-./gradlew assembleDebug
+./gradlew assembleRelease   # shrunk APK -> app/build/outputs/apk/release (debug-signed so phones update in place)
 ```
 
 ### Backend
 
-The database schema, Row Level Security policies, and Edge Functions all live directly in the Supabase project (Dashboard / SQL Editor / Edge Functions) rather than as checked-in migration files, aside from the Edge Function source under `supabase/functions/`, which is version-controlled for history and diffability even though deploys go through the Supabase Management API rather than the CLI.
+The database schema, Row Level Security policies, and Edge Functions all live in the Supabase project itself (Dashboard / SQL Editor / Edge Functions); the repo holds no backend source. `context/backend/` keeps the rollout scripts for the switch to the 30-minute dose-window rules.
 
 ## Status
 
-Feature-complete for its current scope, including offline support and per-day medication history. See `context/project_state_and_workflows.md` for the full, dated implementation history and a security-hardening backlog (release signing, code minification, and a few other items) intentionally deferred until the app's functional scope is fully settled.
+Feature-complete for its current scope: dose windows per medicine (T to T+30 min, server-verified clock), QR-scan administration with offline support, reminders and missed-dose alerts, per-day medication history, 30-day filtered views and a shrunk release build. See `context/project_state_and_workflows.md` for the current rules, backend notes and rollout status.

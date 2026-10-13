@@ -389,9 +389,9 @@ class VitalsViewModel(
     private val _vitals = MutableStateFlow<List<VitalRecord>>(emptyList())
     val vitals: StateFlow<List<VitalRecord>> = _vitals.asStateFlow()
 
-    fun load(patientId: String) { safeLaunch { _vitals.value = repo.getVitalsForPatient(patientId) } }
+    fun load(patientId: String) { safeLaunch { _vitals.value = repo.getVitalsForPatient(patientId, com.kalazacare.app.util.RecentRecords.since()) } }
     fun addVital(record: VitalRecord) {
-        safeLaunch { repo.addVital(record); _vitals.value = repo.getVitalsForPatient(record.patientId) }
+        safeLaunch { repo.addVital(record); _vitals.value = repo.getVitalsForPatient(record.patientId, com.kalazacare.app.util.RecentRecords.since()) }
     }
 
     // Edits within 24h of the original entry apply directly for every role (mistakes
@@ -411,7 +411,7 @@ class VitalsViewModel(
                               else "Vitals record edited within 24h of entry",
                     iconName = "edit",
                 ))
-                _vitals.value = repo.getVitalsForPatient(updated.patientId)
+                _vitals.value = repo.getVitalsForPatient(updated.patientId, com.kalazacare.app.util.RecentRecords.since())
                 onResult(true, "Vitals updated")
                 return@safeLaunch
             }
@@ -473,13 +473,13 @@ class MarViewModel(
 
     /** Only fetched when the History tab is actually opened — unlike Today's list, this one only grows. */
     fun loadHistory(patientId: String) {
-        safeLaunch { _history.value = repo.getAdministrationHistory(patientId) }
+        safeLaunch { _history.value = repo.getAdministrationHistory(patientId, com.kalazacare.app.util.RecentRecords.since()) }
     }
 
     /**
      * Super-Admin-only override, wired from MarTable's onMarkAdministeredAsAdmin — deliberately
-     * bypasses the Scan tab's administration window (the dose's round window, util/RoundWindows.kt;
-     * that gating lives entirely in ScanScreen's eligibility() check, not in the
+     * bypasses the Scan tab's administration window (0 to +[DOSE_WINDOW_MINUTES] min after the dose's
+     * scheduled time; that gating lives entirely in ScanScreen's eligibility() check, not in the
      * repository), since the whole point is correcting a dose that's already outside that window.
      * It does NOT bypass the QR check: the Med tab's dialog validates the code against this
      * dose's patient + tag (util/DoseQr.kt) before calling here. Access control is enforced by
@@ -686,8 +686,6 @@ class ScanViewModel(
         }
     }
 
-    fun markGiven(id: String, scannedCode: String) = markGivenBatch(listOf(id), scannedCode)
-
     /** Confirms several doses from one scan in one go (e.g. 3 meds all due at 9am) — one list refresh at the end, not one per dose. */
     fun markGivenBatch(ids: List<String>, scannedCode: String) {
         if (ids.isEmpty()) return
@@ -756,11 +754,17 @@ class TodoListViewModel(
 // Notifications
 // ─────────────────────────────────────────────────────────────────────────────
 
+private const val NOTIFICATION_PAGE = 50
+
 class NotificationViewModel(private val repo: NotificationRepository) : ViewModel() {
     private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
     val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+    private var limit = NOTIFICATION_PAGE
+    /** True when the last fetch filled the page, i.e. there may be older notifications to load. */
+    private val _hasMore = MutableStateFlow(false)
+    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
     init {
         load()
         subscribeToTableChanges(viewModelScope, "notifications") { load() }
@@ -768,10 +772,13 @@ class NotificationViewModel(private val repo: NotificationRepository) : ViewMode
     fun load() {
         val staff = SessionManager.getCurrentStaff() ?: return
         safeLaunch {
-            _notifications.value = repo.getForRecipient(staff.id, staff.role)
+            val list = repo.getForRecipient(staff.id, staff.role, limit)
+            _notifications.value = list
+            _hasMore.value = list.size >= limit
             _unreadCount.value = repo.getUnreadCountForRecipient(staff.id, staff.role)
         }
     }
+    fun loadMore() { limit += NOTIFICATION_PAGE; load() }
     fun markRead(id: String) { safeLaunch { repo.markRead(id); load() } }
     fun markAllRead() {
         val staff = SessionManager.getCurrentStaff() ?: return
@@ -800,7 +807,7 @@ class UtilityViewModel(
     val allItems: StateFlow<List<UtilityItem>> = _allItems.asStateFlow()
     fun load(patientId: String) {
         safeLaunch {
-            _records.value = repo.getUtilityForPatient(patientId)
+            _records.value = repo.getUtilityForPatient(patientId, com.kalazacare.app.util.RecentRecords.since())
             _items.value = repo.getUtilityItems()
             _allItems.value = repo.getAllUtilityItems()
         }
@@ -918,7 +925,7 @@ class DoctorVisitViewModel(
 ) : ViewModel() {
     private val _visits = MutableStateFlow<List<DoctorVisit>>(emptyList())
     val visits: StateFlow<List<DoctorVisit>> = _visits.asStateFlow()
-    fun load(patientId: String) { safeLaunch { _visits.value = repo.getVisitsForPatient(patientId) } }
+    fun load(patientId: String) { safeLaunch { _visits.value = repo.getVisitsForPatient(patientId, com.kalazacare.app.util.RecentRecords.since()) } }
     fun addVisit(visit: DoctorVisit) {
         safeLaunch { repo.addVisit(visit); load(visit.patientId) }
     }
@@ -1049,7 +1056,7 @@ class CareNoteViewModel(
 ) : ViewModel() {
     private val _notes = MutableStateFlow<List<CareNote>>(emptyList())
     val notes: StateFlow<List<CareNote>> = _notes.asStateFlow()
-    fun load(patientId: String) { safeLaunch { _notes.value = repo.getNotesForPatient(patientId) } }
+    fun load(patientId: String) { safeLaunch { _notes.value = repo.getNotesForPatient(patientId, com.kalazacare.app.util.RecentRecords.since()) } }
     fun addNote(patientId: String, noteText: String) {
         safeLaunch("add this note") {
             repo.addNote(CareNote(
@@ -1128,7 +1135,7 @@ class ApprovalViewModel(
         load()
         subscribeToTableChanges(viewModelScope, "approval_requests") { load() }
     }
-    fun load() { safeLaunch { _requests.value = repo.getAllRequests() } }
+    fun load() { safeLaunch { _requests.value = repo.getAllRequests(com.kalazacare.app.util.RecentRecords.last30()) } }
 
     /**
      * Reads the field's *current* value straight from the live record, so [approve] can
@@ -1416,8 +1423,13 @@ class ApprovalViewModel(
 class AuditLogViewModel(private val repo: AuditRepository) : ViewModel() {
     private val _logs = MutableStateFlow<List<AuditLogEntry>>(emptyList())
     val logs: StateFlow<List<AuditLogEntry>> = _logs.asStateFlow()
+    private var days = com.kalazacare.app.util.RecentRecords.DAYS
+    /** How many days back the list currently reaches (shown on the "Load older" button). */
+    private val _daysShown = MutableStateFlow(com.kalazacare.app.util.RecentRecords.DAYS.toInt())
+    val daysShown: StateFlow<Int> = _daysShown.asStateFlow()
     init { load() }
-    fun load() { safeLaunch { _logs.value = repo.getAllLogs() } }
+    fun load() { safeLaunch { _logs.value = repo.getAllLogs(com.kalazacare.app.util.RecentRecords.last30().minusDays(days - com.kalazacare.app.util.RecentRecords.DAYS)) } }
+    fun loadOlder() { days += com.kalazacare.app.util.RecentRecords.DAYS; _daysShown.value = days.toInt(); load() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1428,29 +1440,7 @@ class ConfigViewModel(
     private val staffRepo: StaffRepository,
     private val utilityRepo: UtilityRepository,
     private val syncManager: SyncManager,
-    private val auditRepo: AuditRepository,
 ) : ViewModel() {
-    /** Round windows (Config → Round Times); the store itself lives in util/RoundWindows. */
-    val roundWindows: StateFlow<Map<DoseTag, com.kalazacare.app.util.RoundWindow>> = com.kalazacare.app.util.RoundWindows.windows
-    fun saveRoundWindow(tag: DoseTag, start: java.time.LocalTime, end: java.time.LocalTime, onResult: (Boolean, String) -> Unit) {
-        if (!SessionManager.isAdmin()) return
-        safeLaunch("save these round times") {
-            try {
-                val before = com.kalazacare.app.util.RoundWindows.get(tag)
-                com.kalazacare.app.util.RoundWindows.save(tag, start, end)
-                auditRepo.addLog(AuditLogEntry(
-                    action = "Round Times Changed",
-                    performedById = SessionManager.getCurrentStaffId(),
-                    performedByName = SessionManager.getCurrentStaffName(),
-                    details = "${tag.name.lowercase().replaceFirstChar { it.uppercase() }} round window ${before.start}–${before.end} → $start–$end",
-                    iconName = "edit",
-                ))
-                onResult(true, "Saved")
-            } catch (e: Exception) {
-                onResult(false, "Could not save: ${e.message}")
-            }
-        }
-    }
     private val _staffList = MutableStateFlow<List<Staff>>(emptyList())
     val staffList: StateFlow<List<Staff>> = _staffList.asStateFlow()
     private val _utilItems = MutableStateFlow<List<UtilityItem>>(emptyList())
@@ -1561,8 +1551,8 @@ class SummaryViewModel(
                 medRepo.getMedicationsForPatient(it.id)
                     .filter { m -> if (m.isRecurring) !m.scheduledDate.isAfter(to) else m.scheduledDate in from..to }
             }
-            val allVitals  = pts.flatMap { vitalsRepo.getVitalsForPatient(it.id).filter { v -> v.date in from..to } }
-            val allUtility = pts.sumOf { utilityRepo.getUtilityForPatient(it.id).count { u -> u.date in from..to } }
+            val allVitals  = pts.flatMap { vitalsRepo.getVitalsForPatient(it.id, from).filter { v -> v.date in from..to } }
+            val allUtility = pts.sumOf { utilityRepo.getUtilityForPatient(it.id, from).count { u -> u.date in from..to } }
             _stats.value = SummaryStats(
                 vitalsRecorded   = allVitals.size,
                 medsAdministered = allMeds.count { it.status == MedStatus.ADMINISTERED },
@@ -1580,19 +1570,19 @@ class SummaryViewModel(
         val from = _startDate.value
         val to = _endDate.value
         // One global fetch, reused for every patient below, rather than querying per patient.
-        val allEvidence = medRepo.getEvidenceLog()
+        val allEvidence = medRepo.getEvidenceLog(from)
         return _patients.value.map { p ->
             PatientRangeSummary(
                 patient = p,
-                vitals = vitalsRepo.getVitalsForPatient(p.id).filter { it.date in from..to },
+                vitals = vitalsRepo.getVitalsForPatient(p.id, from).filter { it.date in from..to },
                 // A recurring dose is due every day regardless of its stored scheduledDate (that's just
                 // when the entry was created) -- only exclude it if it was created after the range ends.
                 // A one-time dose only ever applies on its own exact scheduledDate.
                 medications = medRepo.getMedicationsForPatient(p.id)
                     .filter { m -> if (m.isRecurring) !m.scheduledDate.isAfter(to) else m.scheduledDate in from..to },
-                utility = utilityRepo.getUtilityForPatient(p.id).filter { it.date in from..to },
-                visits = doctorVisitRepo.getVisitsForPatient(p.id).filter { it.date in from..to },
-                notes = careNoteRepo.getNotesForPatient(p.id).filter { it.timestamp.toLocalDate() in from..to },
+                utility = utilityRepo.getUtilityForPatient(p.id, from).filter { it.date in from..to },
+                visits = doctorVisitRepo.getVisitsForPatient(p.id, from).filter { it.date in from..to },
+                notes = careNoteRepo.getNotesForPatient(p.id, from).filter { it.timestamp.toLocalDate() in from..to },
                 administrationEvidence = allEvidence.filter {
                     it.patientId == p.id && it.kind == "ADMINISTRATION" && it.occurredAt.toLocalDate() in from..to
                 },
@@ -1632,7 +1622,7 @@ class KalazaViewModelFactory(
         modelClass.isAssignableFrom(CareNoteViewModel::class.java)    -> CareNoteViewModel(careNoteRepo, approvalRepo, auditRepo, notificationRepo, patientRepo) as T
         modelClass.isAssignableFrom(ApprovalViewModel::class.java)    -> ApprovalViewModel(approvalRepo, patientRepo, auditRepo, notificationRepo, doctorVisitRepo, vitalsRepo, utilityRepo, careNoteRepo, medRepo) as T
         modelClass.isAssignableFrom(AuditLogViewModel::class.java)    -> AuditLogViewModel(auditRepo) as T
-        modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo, syncManager, auditRepo) as T
+        modelClass.isAssignableFrom(ConfigViewModel::class.java)      -> ConfigViewModel(staffRepo, utilityRepo, syncManager) as T
         modelClass.isAssignableFrom(SummaryViewModel::class.java)     -> SummaryViewModel(medRepo, vitalsRepo, approvalRepo, patientRepo, utilityRepo, doctorVisitRepo, careNoteRepo) as T
         modelClass.isAssignableFrom(NotificationViewModel::class.java)-> NotificationViewModel(notificationRepo) as T
         modelClass.isAssignableFrom(TodoListViewModel::class.java)    -> TodoListViewModel(medRepo, patientRepo) as T

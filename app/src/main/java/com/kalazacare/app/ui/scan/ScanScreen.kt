@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kalazacare.app.data.model.DOSE_WINDOW_MINUTES
 import com.kalazacare.app.data.model.DoseTag
 import com.kalazacare.app.data.model.MedStatus
 import com.kalazacare.app.data.model.MedicationEntry
@@ -28,9 +29,9 @@ import com.kalazacare.app.ui.components.QrScanDialog
 import com.kalazacare.app.ui.components.label
 import com.kalazacare.app.ui.theme.KalazaRed
 import com.kalazacare.app.util.DateUtils
-import com.kalazacare.app.util.RoundWindows
+import com.kalazacare.app.util.TrustedClock
 import kotlinx.coroutines.delay
-import java.time.LocalTime
+import java.time.LocalDateTime
 
 /** Staff must read the confirmation popup before it lets them through. */
 private const val CONFIRM_HOLD_SECONDS = 6
@@ -56,6 +57,8 @@ fun ScanScreen(
     val meds by viewModel.meds.collectAsState()
     val error by viewModel.error.collectAsState()
     val loading by viewModel.loading.collectAsState()
+
+    LaunchedEffect(Unit) { TrustedClock.syncAsync() }
 
     var showQrDialog by remember { mutableStateOf(false) }
     var selectedIds by remember(patientName, tag) { mutableStateOf<Set<String>>(emptySet()) }
@@ -115,7 +118,7 @@ fun ScanScreen(
             onConfirm = {
                 // The list may have sat open past the window's end (or the 6s review took it there),
                 // so re-check eligibility at the moment of confirming rather than trusting the selection.
-                val now = LocalTime.now()
+                val now = TrustedClock.nowIstOrNull()
                 val stillDue = selectedMeds.filter { it.eligibility(now) == DoseEligibility.DUE }
                 if (stillDue.size < selectedMeds.size) {
                     Toast.makeText(context, "The window has closed — ${selectedMeds.size - stillDue.size} dose(s) were not marked.", Toast.LENGTH_LONG).show()
@@ -217,22 +220,27 @@ private fun ScanEntry(
 }
 
 /** Why a dose can't be checked off right now — drives both its visual state and whether it's selectable. */
-private enum class DoseEligibility { GIVEN, NOT_YET_DUE, DUE, WINDOW_CLOSED }
+private enum class DoseEligibility { GIVEN, NOT_YET_DUE, DUE, WINDOW_CLOSED, NO_CLOCK }
 
 /**
- * A dose can only be marked given inside its round's window (Morning/Afternoon/Evening start–end,
- * set in Config → Round Times, see util/RoundWindows.kt) — before it opens it's not due yet, once it
- * closes it's locked entirely until tomorrow's occurrence. The medicine's own scheduleTime plays no
- * part here (it only drives reminders). Strictly enforced; only the Admin override on the Med tab
- * can mark a dose outside its window.
+ * A dose can only be marked given from its own scheduled time T until T + [DOSE_WINDOW_MINUTES]
+ * (strict; [now] is the server-anchored IST time from util/TrustedClock). Before T it's not due yet,
+ * after the window it's locked until tomorrow's occurrence, and with no trusted clock (never synced
+ * since this phone booted) nothing can be given. Only the Admin override on the Med tab can mark a
+ * dose outside its window. A window that crosses midnight (e.g. 11:50 PM) counts its after-midnight
+ * part against the previous day's T.
  */
-private fun MedicationEntry.eligibility(now: LocalTime): DoseEligibility {
+private fun MedicationEntry.eligibility(now: LocalDateTime?): DoseEligibility {
     if (status == MedStatus.ADMINISTERED) return DoseEligibility.GIVEN
-    val window = RoundWindows.get(tag)
+    if (now == null) return DoseEligibility.NO_CLOCK
+    val dueMin = scheduleTime.hour * 60 + scheduleTime.minute
+    val nowMin = now.hour * 60 + now.minute
+    var sinceDue = nowMin - dueMin
+    if (sinceDue < 0 && dueMin + DOSE_WINDOW_MINUTES > 1440 && nowMin < dueMin + DOSE_WINDOW_MINUTES - 1440) sinceDue += 1440
     return when {
-        window.isBeforeWindow(now) -> DoseEligibility.NOT_YET_DUE
-        window.isAfterWindow(now) -> DoseEligibility.WINDOW_CLOSED
-        else -> DoseEligibility.DUE
+        sinceDue < 0 -> DoseEligibility.NOT_YET_DUE
+        sinceDue < DOSE_WINDOW_MINUTES -> DoseEligibility.DUE
+        else -> DoseEligibility.WINDOW_CLOSED
     }
 }
 
@@ -246,10 +254,11 @@ private fun MatchedMedsList(
     onConfirmSelected: () -> Unit,
     onScanAnother: () -> Unit,
 ) {
-    // Recomputed on every recomposition (each mark-given reload, tab revisit, etc.) rather
-    // than pinned once — a med that was "not due yet" when the list first loaded should grey
-    // back in once the clock catches up to it, without needing a fresh scan.
-    val now = LocalTime.now()
+    // Ticks every 10s so a dose opens (and closes) on its own as the clock reaches T / T+30 — no fresh
+    // scan needed. Null until the trusted clock has been anchored to the server since this phone booted.
+    val now by produceState(initialValue = TrustedClock.nowIstOrNull()) {
+        while (true) { delay(10_000); value = TrustedClock.nowIstOrNull() }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -258,11 +267,19 @@ private fun MatchedMedsList(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(patientName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                val window = RoundWindows.get(tag)
-                Text("${tag.label()} round · ${DateUtils.formatTime(window.start)} – ${DateUtils.formatTime(window.end)}",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${tag.label()} round", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = onScanAnother) { Text("Scan Another") }
+        }
+
+        if (now == null) {
+            Text(
+                "Clock not synced — connect to the internet once so doses can be timed. Nothing can be given until then.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         }
 
         if (meds.isEmpty()) {
@@ -315,6 +332,9 @@ private fun MatchedMedsList(
                                 )
                                 DoseEligibility.WINDOW_CLOSED -> Text(
                                     "Window closed", style = MaterialTheme.typography.labelSmall, color = Color.Gray,
+                                )
+                                DoseEligibility.NO_CLOCK -> Text(
+                                    "Clock not synced", style = MaterialTheme.typography.labelSmall, color = Color.Gray,
                                 )
                                 DoseEligibility.DUE -> {}
                             }

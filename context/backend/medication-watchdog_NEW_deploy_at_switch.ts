@@ -1,32 +1,29 @@
 // Supabase Edge Function — scheduled (not event-driven) watchdog over
-// medication deadlines. Meant to run every minute via Database → Cron Jobs
-// (or pg_cron), unlike send-push/cleanup-photos which are triggered by a
-// webhook/its own schedule respectively for different reasons.
+// medication deadlines. Runs every minute via pg_cron (see supabase/sql).
 //
-// Four checkpoints per dose not yet given TODAY, each firing at most once
-// per day per dose (tracked via the *_sent_at timestamp columns on
-// `medications`, compared by IST calendar date so a recurring dose's
-// checkpoints reset every day). A dose can only be given inside its ROUND's
-// window (`round_windows` table, edited in the app's Config → Round Times; see
-// util/RoundWindows.kt) and is Missed once that window closes. The first three
-// alerts follow the medicine's OWN scheduled time; only Missed follows the window:
-//   - 15 min before  -> reminder to STAFF
-//   - at the dose time (0 to +5 min)   -> "due now" to SUPERVISOR
-//   - 15 min after (while the window is still open) -> "not given yet" heads-up
-//     to SUPER_ADMIN (incl. Admins)
-//   - when the round's window closes   -> actual Missed alert to SUPERVISOR
-//     and SUPER_ADMIN, plus the durable audit/history record
+// Each dose has its own giving window: from its scheduled time T until T+30 min (DOSE_WINDOW_MINUTES on
+// the Kotlin side; the DB trigger in supabase/sql/02_switch.sql enforces the same). Three checkpoints per
+// dose not yet given TODAY, each firing at most once per IST day (dedup via the *_sent_at columns on
+// `medications`, so a recurring dose's checkpoints reset daily):
+//   - T-15 min          -> reminder to STAFF and SUPERVISOR          (reminder_sent_at)
+//   - T (0 to +5 min)   -> "due now" to STAFF and SUPERVISOR         (due_now_sent_at)
+//   - T+30 (window closes) -> Missed alert to SUPERVISOR and SUPER_ADMIN (incl. Admins), plus the durable
+//                             audit_log row and MISSED history row   (superadmin_alert_sent_at)
+// Notification roles: ADMIN is delivered as SUPER_ADMIN, so "SUPER_ADMIN" reaches both.
 //
-// All times in `medications` (schedule_time) are wall-clock IST (the app is
-// built for a facility in Pune), so this function does its date/time math
-// in IST rather than the Edge Function runtime's UTC clock.
+// "Given today" means administered_at is today (IST): a recurring dose's row stays ADMINISTERED
+// overnight, so filtering on status alone would silence every alert after a dose's first given day.
 //
-// SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are auto-injected — no secrets
-// need to be set for this one.
+// All times in `medications` (schedule_time) are wall-clock IST (the app is built for a facility in
+// Pune), so this function does its date/time math in IST rather than the runtime's UTC clock.
+//
+// SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are auto-injected — no secrets need to be set. The schedule
+// calls this without credentials (verify_jwt is off): it only reads/writes through its own service role.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const WINDOW_MINUTES = 30;
 
 function nowIst(): Date {
   return new Date(Date.now() + IST_OFFSET_MS);
@@ -76,24 +73,15 @@ Deno.serve(async () => {
 
   const { data: meds, error } = await supabase
     .from("medications")
-    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, administered_at, created_at, reminder_sent_at, due_now_sent_at, admin_alert_sent_at, superadmin_alert_sent_at, patients(name)");
+    .select("id, patient_id, medicine_name, dose, tag, schedule_time, scheduled_date, is_recurring, recurring_days, status, administered_at, created_at, reminder_sent_at, due_now_sent_at, superadmin_alert_sent_at, patients(name)");
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-
-  // Round windows (wall-clock IST); if the table can't be read, fall back to the shipped defaults.
-  const windows: Record<string, { start: string; end: string }> = {
-    MORNING: { start: "08:00:00", end: "09:00:00" },
-    AFTERNOON: { start: "12:30:00", end: "13:30:00" },
-    EVENING: { start: "19:00:00", end: "21:00:00" },
-  };
-  const { data: rw } = await supabase.from("round_windows").select("tag, start_time, end_time");
-  for (const r of rw ?? []) windows[r.tag] = { start: r.start_time, end: r.end_time };
 
   const nowIstDate = nowIst();
   const today = istDateString(nowIstDate);
   const todayIsoDay = isoDayOfWeek(nowIstDate);
   const nowMs = Date.now();
 
-  let reminders = 0, dueNow = 0, adminAlerts = 0, escalations = 0;
+  let reminders = 0, dueNow = 0, escalations = 0;
 
   for (const med of meds ?? []) {
     const effectiveDate = med.is_recurring ? today : med.scheduled_date;
@@ -117,7 +105,7 @@ Deno.serve(async () => {
     }
 
     const deadlineMs = istDeadlineMs(effectiveDate, med.schedule_time);
-    const windowEndMs = istDeadlineMs(effectiveDate, (windows[med.tag] ?? windows.MORNING).end);
+    const windowEndMs = deadlineMs + WINDOW_MINUTES * 60_000;
     // A dose entered after today's giving window had already closed (e.g. an 8 AM dose added at 6 PM)
     // was never actually due today — don't fire alerts, audit rows or a MISSED history row for it.
     if (med.created_at && Date.parse(med.created_at) > windowEndMs) continue;
@@ -126,39 +114,31 @@ Deno.serve(async () => {
 
     if (diffMinutes >= -15 && diffMinutes < 0 && !sentToday(med.reminder_sent_at, today)) {
       if (!(await claim(supabase, med.id, "reminder_sent_at"))) continue;
-      await supabase.from("notifications").insert({
-        recipient_role: "STAFF", type: "MEDICATION_REMINDER",
-        title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due shortly`,
-        target_route: `patient/${med.patient_id}?tab=2`,
-      });
+      await supabase.from("notifications").insert(
+        ["STAFF", "SUPERVISOR"].map((role) => ({
+          recipient_role: role, type: "MEDICATION_REMINDER",
+          title: "Dose due soon", message: `${med.medicine_name} for ${patientName} is due in 15 minutes`,
+          target_route: `patient/${med.patient_id}?tab=2`,
+        })),
+      );
       reminders++;
     }
 
     if (diffMinutes >= 0 && diffMinutes < 5 && !sentToday(med.due_now_sent_at, today)) {
       if (!(await claim(supabase, med.id, "due_now_sent_at"))) continue;
-      await supabase.from("notifications").insert({
-        recipient_role: "SUPERVISOR", type: "MEDICATION_REMINDER",
-        title: "Dose due now", message: `${med.medicine_name} for ${patientName} is due now`,
-        target_route: `patient/${med.patient_id}?tab=2`,
-      });
+      await supabase.from("notifications").insert(
+        ["STAFF", "SUPERVISOR"].map((role) => ({
+          recipient_role: role, type: "MEDICATION_REMINDER",
+          title: "Dose due now", message: `${med.medicine_name} for ${patientName} is due now`,
+          target_route: `patient/${med.patient_id}?tab=2`,
+        })),
+      );
       dueNow++;
     }
 
-    // A heads-up, not the actual Missed status (that's the checkpoint below, once the round's window closes).
-    if (diffMinutes >= 15 && nowMs < windowEndMs && !sentToday(med.admin_alert_sent_at, today)) {
-      if (!(await claim(supabase, med.id, "admin_alert_sent_at"))) continue;
-      await supabase.from("notifications").insert({
-        recipient_role: "SUPER_ADMIN", type: "MEDICATION_MISSED_ALERT",
-        title: "Dose not given yet", message: `${med.medicine_name} for ${patientName} has not been given yet`,
-        target_route: `patient/${med.patient_id}?tab=2`,
-      });
-      adminAlerts++;
-    }
-
-    // Once the round's window has closed the dose is missed: Supervisor and Super Admin
-    // are both told. Both share superadmin_alert_sent_at for dedupe.
-    // Not retroactively: if the window closed over 2h ago (e.g. this check was down, or just deployed),
-    // a "missed" ping now would only be late noise.
+    // Once the dose's window has closed it is missed: Supervisor and Super Admin/Admin are both told.
+    // Both share superadmin_alert_sent_at for dedupe. Not retroactively: if the window closed over 2h ago
+    // (this check was down, or just deployed), a "missed" ping now would only be late noise.
     if (nowMs >= windowEndMs && nowMs - windowEndMs <= 2 * 60 * 60_000 && !sentToday(med.superadmin_alert_sent_at, today)) {
       if (!(await claim(supabase, med.id, "superadmin_alert_sent_at"))) continue;
       await supabase.from("notifications").insert([
@@ -195,5 +175,5 @@ Deno.serve(async () => {
     }
   }
 
-  return new Response(JSON.stringify({ reminders, dueNow, adminAlerts, escalations }), { status: 200 });
+  return new Response(JSON.stringify({ reminders, dueNow, escalations }), { status: 200 });
 });

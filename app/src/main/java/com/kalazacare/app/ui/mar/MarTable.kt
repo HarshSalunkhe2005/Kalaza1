@@ -36,7 +36,7 @@ fun MarTable(
     onEditMedication: ((MedicationEntry) -> Unit)? = null,   // CHANGE 5
     onDeleteMedication: ((MedicationEntry) -> Unit)? = null,
     // Super-Admin-only override: the Scan tab is the normal way to mark a dose given, gated
-    // to its round's time window, but a genuinely missed dose still needs
+    // to 30 minutes from the scheduled time, but a genuinely missed dose still needs
     // correcting after the fact — null for every other role, which hides the button entirely.
     onMarkAdministeredAsAdmin: ((MedicationEntry) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -201,7 +201,7 @@ private fun EditMedicationDialog(
                 DoseTagPicker(selected = tag, onSelect = { tag = it })
                 if (tagTimeMismatch) {
                     Text(
-                        "${DateUtils.formatTime(scheduleTime)} is outside the ${tag.label()} round's window — pick a time inside it, or change the tag.",
+                        "${DateUtils.formatTime(scheduleTime)} doesn't fall in ${tag.label()}'s usual window — pick a time that matches, or change the tag.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
                     )

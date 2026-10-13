@@ -64,12 +64,17 @@ enum class ApprovalAction { ADD, EDIT, DELETE }
 enum class MedStatus { PENDING, ADMINISTERED, OVERDUE }
 
 /**
+ * A dose can be given from its own scheduled time T until T + this many minutes; once that has
+ * passed it is Missed (OVERDUE). Strict, and judged against the server-anchored util/TrustedClock.
+ * The server enforces the same rule (context/backend/02_switch.sql) and the watchdog alerts on it.
+ */
+const val DOSE_WINDOW_MINUTES = 30
+
+/**
  * Coarse dosing bucket a medication is assigned to, independent of its exact
- * [MedicationEntry.scheduleTime]. Drives the batch-QR match on the Scan tab — the QR staff
- * prints for a patient encodes one of these three, and a scan only unlocks that patient's
- * doses tagged with the matching bucket — and the giving window: a dose can only be given
- * inside its round's window (util/RoundWindows.kt, set in Config → Round Times) and turns
- * Missed (OVERDUE) once that window closes. Reminders still follow the exact scheduleTime.
+ * [MedicationEntry.scheduleTime]. It only drives the batch-QR match on the Scan tab — the QR staff
+ * prints for a patient encodes one of these three, and a scan lists that patient's doses tagged with
+ * the matching bucket. Each dose is then given by its own time ([DOSE_WINDOW_MINUTES]).
  */
 enum class DoseTag { MORNING, AFTERNOON, EVENING }
 
@@ -277,7 +282,7 @@ data class MedicationEvidenceEvent(
     val medicationId: String = "",
     val patientId: String = "",
     val medicineName: String = "",
-    val kind: String = "", // "ALLOTMENT" or "ADMINISTRATION"
+    val kind: String = "", // only "ADMINISTRATION" is written now (the DB check still allows the retired "ALLOTMENT")
     val staffId: String = "",
     val staffName: String = "",
     val scannedCode: String = "",
@@ -314,7 +319,6 @@ data class UtilityItem(
 
 enum class NotificationType {
     APPROVAL_REQUESTED, APPROVAL_APPROVED, APPROVAL_REJECTED,
-    ALLOTMENT_REQUESTED, ALLOTMENT_FULFILLED,
     // Fired by the scheduled medication-watchdog Edge Function, not from
     // anywhere in the app itself.
     MEDICATION_REMINDER, MEDICATION_MISSED_ALERT, MEDICATION_MISSED_ESCALATION,

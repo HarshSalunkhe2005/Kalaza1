@@ -48,7 +48,8 @@ interface PatientRepository {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface VitalsRepository {
-    suspend fun getVitalsForPatient(patientId: String): List<VitalRecord>
+    /** [since] null = every record; the app passes util/RecentRecords.since() (last 30 days) by default. */
+    suspend fun getVitalsForPatient(patientId: String, since: LocalDate? = null): List<VitalRecord>
     /** One query across every patient, for screens summarizing "today" instead of per-patient. */
     suspend fun getVitalsForDate(date: LocalDate): List<VitalRecord>
     suspend fun getVitalById(id: String): VitalRecord?
@@ -70,11 +71,12 @@ interface MedicationRepository {
     suspend fun addMedication(entry: MedicationEntry)
     suspend fun updateMedication(entry: MedicationEntry)
     suspend fun deleteMedication(id: String)
-    suspend fun markAdministered(id: String, staffName: String, scannedCode: String)
+    /** [recordedOfflineAt] non-null = replaying a tick made offline at that (trusted-clock) time; null = a live tick the server stamps. */
+    suspend fun markAdministered(id: String, staffName: String, scannedCode: String, recordedOfflineAt: String? = null)
     /** The permanent compliance record of administration QR scans — see [MedicationEvidenceEvent]. */
-    suspend fun getEvidenceLog(): List<MedicationEvidenceEvent>
+    suspend fun getEvidenceLog(since: LocalDate? = null): List<MedicationEvidenceEvent>
     /** Per-day given/missed outcomes for every dose of this patient — see [MedicationHistoryEntry]. */
-    suspend fun getAdministrationHistory(patientId: String): List<MedicationHistoryEntry>
+    suspend fun getAdministrationHistory(patientId: String, since: LocalDate? = null): List<MedicationHistoryEntry>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,7 +84,7 @@ interface MedicationRepository {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface UtilityRepository {
-    suspend fun getUtilityForPatient(patientId: String): List<UtilityRecord>
+    suspend fun getUtilityForPatient(patientId: String, since: LocalDate? = null): List<UtilityRecord>
     /** One query across every patient, for screens summarizing "today" instead of per-patient. */
     suspend fun getUtilityForDate(date: LocalDate): List<UtilityRecord>
     suspend fun getUtilityRecordById(id: String): UtilityRecord?
@@ -102,7 +104,7 @@ interface UtilityRepository {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface DoctorVisitRepository {
-    suspend fun getVisitsForPatient(patientId: String): List<DoctorVisit>
+    suspend fun getVisitsForPatient(patientId: String, since: LocalDate? = null): List<DoctorVisit>
     /** One query across every patient, for screens summarizing "today" instead of per-patient. */
     suspend fun getVisitsForDate(date: LocalDate): List<DoctorVisit>
     suspend fun getVisitById(id: String): DoctorVisit?
@@ -112,7 +114,7 @@ interface DoctorVisitRepository {
 }
 
 interface CareNoteRepository {
-    suspend fun getNotesForPatient(patientId: String): List<CareNote>
+    suspend fun getNotesForPatient(patientId: String, since: LocalDate? = null): List<CareNote>
     suspend fun addNote(note: CareNote)
     suspend fun updateNote(note: CareNote)
     suspend fun getNoteById(id: String): CareNote?
@@ -123,7 +125,8 @@ interface CareNoteRepository {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ApprovalRepository {
-    suspend fun getAllRequests(): List<ApprovalRequest>
+    /** Pending requests always, plus resolved ones since [since] (null = all). */
+    suspend fun getAllRequests(since: LocalDate? = null): List<ApprovalRequest>
     suspend fun getPendingRequests(): List<ApprovalRequest>
     suspend fun getRequestById(id: String): ApprovalRequest?
     suspend fun approve(id: String, reviewerId: String, reviewerName: String)
@@ -132,7 +135,8 @@ interface ApprovalRepository {
 }
 
 interface NotificationRepository {
-    suspend fun getForRecipient(staffId: String, role: UserRole): List<AppNotification>
+    /** Newest [limit] notifications within the retention window. */
+    suspend fun getForRecipient(staffId: String, role: UserRole, limit: Int = 50): List<AppNotification>
     suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int
     suspend fun add(notification: AppNotification)
     suspend fun markRead(id: String)
@@ -140,7 +144,7 @@ interface NotificationRepository {
 }
 
 interface AuditRepository {
-    suspend fun getAllLogs(): List<AuditLogEntry>
+    suspend fun getAllLogs(since: LocalDate? = null): List<AuditLogEntry>
     suspend fun addLog(entry: AuditLogEntry)
 }
 

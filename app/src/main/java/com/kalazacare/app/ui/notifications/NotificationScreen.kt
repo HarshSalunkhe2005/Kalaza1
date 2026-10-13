@@ -38,6 +38,7 @@ fun NotificationScreen(
     onNotificationClick: (String) -> Unit,
 ) {
     val notifications by viewModel.notifications.collectAsState()
+    val hasMore by viewModel.hasMore.collectAsState()
 
     Scaffold(
         topBar = {
@@ -81,6 +82,13 @@ fun NotificationScreen(
                             if (notification.targetRoute.isNotBlank()) onNotificationClick(notification.targetRoute)
                         }
                     )
+                }
+                if (hasMore) {
+                    item {
+                        TextButton(onClick = { viewModel.loadMore() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Load more")
+                        }
+                    }
                 }
             }
         }
@@ -148,8 +156,6 @@ private fun iconForType(type: NotificationType): ImageVector = when (type) {
     NotificationType.APPROVAL_REQUESTED          -> Icons.Default.CheckCircle
     NotificationType.APPROVAL_APPROVED           -> Icons.Default.CheckCircle
     NotificationType.APPROVAL_REJECTED           -> Icons.Default.Cancel
-    NotificationType.ALLOTMENT_REQUESTED         -> Icons.Default.Medication
-    NotificationType.ALLOTMENT_FULFILLED         -> Icons.Default.Medication
     NotificationType.MEDICATION_REMINDER         -> Icons.Default.Medication
     NotificationType.MEDICATION_MISSED_ALERT     -> Icons.Default.Cancel
     NotificationType.MEDICATION_MISSED_ESCALATION -> Icons.Default.Cancel

@@ -1,13 +1,18 @@
 package com.kalazacare.app.data.repository
 
 import com.kalazacare.app.data.model.*
-import com.kalazacare.app.util.RoundWindows
+import com.kalazacare.app.util.TrustedClock
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Count
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -37,9 +42,12 @@ private fun parseTimestampOrNull(s: String?): LocalDateTime? = s?.let { str ->
         .recoverCatching { LocalDateTime.parse(str) }.getOrNull()
 }
 /** "Now" as an ISO string WITH offset — a bare LocalDateTime string gets read by Postgres as UTC, shifting every time by the device's UTC offset. */
-internal fun nowIso(): String = OffsetDateTime.now().toString()
+/** Server-anchored when the trusted clock has a baseline (see util/TrustedClock), else the phone's clock. */
+internal fun nowIso(): String = TrustedClock.nowIso()
 internal fun LocalDateTime.toIso(): String = atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
 private fun newId() = UUID.randomUUID().toString()
+/** Start of [d] (phone's zone) as a UTC "Z" string — a "+05:30" offset in a query string would have its "+" read as a space. */
+private fun sinceIso(d: LocalDate): String = d.atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Patients
@@ -147,8 +155,11 @@ internal fun VitalRecord.toRow() = VitalRow(
 
 class SupabaseVitalsRepository(private val client: SupabaseClient) : VitalsRepository {
     private val table = "vitals"
-    override suspend fun getVitalsForPatient(patientId: String): List<VitalRecord> =
-        client.postgrest.from(table).select { filter { eq("patient_id", patientId) } }
+    override suspend fun getVitalsForPatient(patientId: String, since: LocalDate?): List<VitalRecord> =
+        client.postgrest.from(table).select {
+            filter { eq("patient_id", patientId); since?.let { gte("date", it.toString()) } }
+            order("date", Order.DESCENDING)
+        }
             .decodeList<VitalRow>().map { it.toDomain() }.sortedByDescending { it.date }
     override suspend fun getVitalsForDate(date: LocalDate): List<VitalRecord> =
         client.postgrest.from(table).select { filter { eq("date", date.toString()) } }
@@ -251,13 +262,13 @@ private fun MedicationEntry.withComputedStatus(): MedicationEntry {
         }
     }
     if (e.status != MedStatus.PENDING && e.status != MedStatus.OVERDUE) return e
-    val effectiveDate = if (e.isRecurring) LocalDate.now() else e.scheduledDate
-    // Still PENDING through the whole giving window of its round; only Missed once that has closed.
-    val windowClosesAt = LocalDateTime.of(effectiveDate, RoundWindows.get(e.tag).end)
+    val effectiveDate = if (e.isRecurring) TrustedClock.nowIst().toLocalDate() else e.scheduledDate
+    // Still PENDING through the dose's giving window (T to T+DOSE_WINDOW_MINUTES); only Missed once it has closed.
+    val windowClosesAt = LocalDateTime.of(effectiveDate, e.scheduleTime).plusMinutes(DOSE_WINDOW_MINUTES.toLong())
     // A dose added after today's window already closed (e.g. an 8 AM dose entered at 6 PM) was never
     // actually due today — it starts counting as Missed from its next occurrence, not retroactively.
     val addedTooLate = e.createdAt?.isAfter(windowClosesAt) == true
-    val computed = if (!addedTooLate && !windowClosesAt.isAfter(LocalDateTime.now())) MedStatus.OVERDUE else MedStatus.PENDING
+    val computed = if (!addedTooLate && !windowClosesAt.isAfter(TrustedClock.nowIst())) MedStatus.OVERDUE else MedStatus.PENDING
     return if (computed != e.status) e.copy(status = computed) else e
 }
 
@@ -314,22 +325,26 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
     override suspend fun deleteMedication(id: String) {
         client.postgrest.from(table).delete { filter { eq("id", id) } }
     }
-    override suspend fun markAdministered(id: String, staffName: String, scannedCode: String) {
+    override suspend fun markAdministered(id: String, staffName: String, scannedCode: String, recordedOfflineAt: String?) {
+        // [recordedOfflineAt] is set only when replaying a tick that was made offline: the server can't
+        // verify that time (it stamps and window-checks live ticks itself), so the row is flagged instead.
+        val at = recordedOfflineAt ?: nowIso()
         val med = client.postgrest.from(table).select { filter { eq("id", id) } }.decodeSingleOrNull<MedicationRow>()
         client.postgrest.from(table).update(
-            mapOf(
-                "status" to MedStatus.ADMINISTERED.name,
-                "administered_by" to staffName,
-                "administered_at" to nowIso(),
-                "administered_scanned_code" to scannedCode,
-            )
+            buildJsonObject {
+                put("status", MedStatus.ADMINISTERED.name)
+                put("administered_by", staffName)
+                put("administered_at", at)
+                put("administered_scanned_code", scannedCode)
+                put("recorded_offline", recordedOfflineAt != null)
+            }
         ) { filter { eq("id", id) } }
         if (med != null) {
             client.postgrest.from(EVIDENCE_LOG_TABLE).insert(
                 MedicationEvidenceRow(
                     id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
                     kind = "ADMINISTRATION", staffId = null, staffName = staffName,
-                    scannedCode = scannedCode, occurredAt = nowIso(),
+                    scannedCode = scannedCode, occurredAt = at,
                 )
             )
             // Per-day history ledger — the watchdog Edge Function writes the MISSED
@@ -338,9 +353,10 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
             client.postgrest.from(HISTORY_LOG_TABLE).upsert(
                 MedicationHistoryRow(
                     id = newId(), medicationId = id, patientId = med.patientId, medicineName = med.medicineName,
-                    dose = med.dose, tag = med.tag, date = LocalDate.now().toString(),
+                    dose = med.dose, tag = med.tag,
+                    date = java.time.OffsetDateTime.parse(at).atZoneSameInstant(TrustedClock.IST).toLocalDate().toString(),
                     status = "ADMINISTERED", administeredBy = staffName,
-                    administeredAt = nowIso(), scannedCode = scannedCode,
+                    administeredAt = at, scannedCode = scannedCode,
                 )
             ) {
                 onConflict = "medication_id,date"
@@ -348,11 +364,17 @@ class SupabaseMedicationRepository(private val client: SupabaseClient) : Medicat
             }
         }
     }
-    override suspend fun getEvidenceLog(): List<MedicationEvidenceEvent> =
-        client.postgrest.from(EVIDENCE_LOG_TABLE).select().decodeList<MedicationEvidenceRow>()
+    override suspend fun getEvidenceLog(since: LocalDate?): List<MedicationEvidenceEvent> =
+        client.postgrest.from(EVIDENCE_LOG_TABLE).select {
+            since?.let { filter { gte("occurred_at", sinceIso(it)) } }
+            order("occurred_at", Order.DESCENDING)
+        }.decodeList<MedicationEvidenceRow>()
             .map { it.toDomain() }.sortedByDescending { it.occurredAt }
-    override suspend fun getAdministrationHistory(patientId: String): List<MedicationHistoryEntry> =
-        client.postgrest.from(HISTORY_LOG_TABLE).select { filter { eq("patient_id", patientId) } }
+    override suspend fun getAdministrationHistory(patientId: String, since: LocalDate?): List<MedicationHistoryEntry> =
+        client.postgrest.from(HISTORY_LOG_TABLE).select {
+            filter { eq("patient_id", patientId); since?.let { gte("date", it.toString()) } }
+            order("date", Order.DESCENDING)
+        }
             .decodeList<MedicationHistoryRow>().map { it.toDomain() }.sortedByDescending { it.date }
 }
 
@@ -456,8 +478,11 @@ internal fun UtilityItem.toRow() = UtilityItemRow(id = id, name = name, unit = u
 class SupabaseUtilityRepository(private val client: SupabaseClient) : UtilityRepository {
     private val recordsTable = "utility_records"
     private val itemsTable = "utility_items"
-    override suspend fun getUtilityForPatient(patientId: String): List<UtilityRecord> =
-        client.postgrest.from(recordsTable).select { filter { eq("patient_id", patientId) } }
+    override suspend fun getUtilityForPatient(patientId: String, since: LocalDate?): List<UtilityRecord> =
+        client.postgrest.from(recordsTable).select {
+            filter { eq("patient_id", patientId); since?.let { gte("date", it.toString()) } }
+            order("date", Order.DESCENDING)
+        }
             .decodeList<UtilityRecordRow>().map { it.toDomain() }.sortedByDescending { it.date }
     override suspend fun getUtilityForDate(date: LocalDate): List<UtilityRecord> =
         client.postgrest.from(recordsTable).select { filter { eq("date", date.toString()) } }
@@ -524,8 +549,11 @@ internal fun DoctorVisit.toRow() = DoctorVisitRow(
 
 class SupabaseDoctorVisitRepository(private val client: SupabaseClient) : DoctorVisitRepository {
     private val table = "doctor_visits"
-    override suspend fun getVisitsForPatient(patientId: String): List<DoctorVisit> =
-        client.postgrest.from(table).select { filter { eq("patient_id", patientId) } }
+    override suspend fun getVisitsForPatient(patientId: String, since: LocalDate?): List<DoctorVisit> =
+        client.postgrest.from(table).select {
+            filter { eq("patient_id", patientId); since?.let { gte("date", it.toString()) } }
+            order("date", Order.DESCENDING)
+        }
             .decodeList<DoctorVisitRow>().map { it.toDomain() }.sortedByDescending { it.date }
     override suspend fun getVisitsForDate(date: LocalDate): List<DoctorVisit> =
         client.postgrest.from(table).select { filter { eq("date", date.toString()) } }
@@ -563,8 +591,11 @@ internal fun CareNote.toRow() = CareNoteRow(
 
 class SupabaseCareNoteRepository(private val client: SupabaseClient) : CareNoteRepository {
     private val table = "care_notes"
-    override suspend fun getNotesForPatient(patientId: String): List<CareNote> =
-        client.postgrest.from(table).select { filter { eq("patient_id", patientId) } }
+    override suspend fun getNotesForPatient(patientId: String, since: LocalDate?): List<CareNote> =
+        client.postgrest.from(table).select {
+            filter { eq("patient_id", patientId); since?.let { gte("timestamp", sinceIso(it)) } }
+            order("timestamp", Order.DESCENDING)
+        }
             .decodeList<CareNoteRow>().map { it.toDomain() }.sortedByDescending { it.timestamp }
     override suspend fun addNote(note: CareNote) {
         client.postgrest.from(table).insert(note.copy(id = newId()).toRow())
@@ -627,8 +658,11 @@ internal fun ApprovalRequest.toRow() = ApprovalRequestRow(
 
 class SupabaseApprovalRepository(private val client: SupabaseClient) : ApprovalRepository {
     private val table = "approval_requests"
-    override suspend fun getAllRequests(): List<ApprovalRequest> =
-        client.postgrest.from(table).select().decodeList<ApprovalRequestRow>()
+    override suspend fun getAllRequests(since: LocalDate?): List<ApprovalRequest> =
+        client.postgrest.from(table).select {
+            since?.let { s -> filter { or { eq("status", ApprovalStatus.PENDING.name); gte("timestamp", sinceIso(s)) } } }
+            order("timestamp", Order.DESCENDING)
+        }.decodeList<ApprovalRequestRow>()
             .map { it.toDomain() }.sortedByDescending { it.timestamp }
     override suspend fun getPendingRequests(): List<ApprovalRequest> =
         client.postgrest.from(table).select { filter { eq("status", ApprovalStatus.PENDING.name) } }
@@ -702,28 +736,33 @@ internal fun AppNotification.toRow() = NotificationRow(
  * alone (due/missed doses, vitals, utilities), so a longer window leaves the badge permanently at "99+" and the
  * list useless; 3 days still covers a weekend, and anything older lives on in the Audit Log / Med History.
  */
-internal const val NOTIFICATION_WINDOW_DAYS = 3L
+internal const val NOTIFICATION_WINDOW_DAYS = 14L
 
 /** UTC "Z" form on purpose: a "+05:30" offset in a query string would have its "+" read as a space. */
 private fun notificationCutoffIso(): String = OffsetDateTime.now(ZoneOffset.UTC).minusDays(NOTIFICATION_WINDOW_DAYS).toString()
 
 class SupabaseNotificationRepository(private val client: SupabaseClient) : NotificationRepository {
     private val table = "notifications"
-    override suspend fun getForRecipient(staffId: String, role: UserRole): List<AppNotification> =
+    override suspend fun getForRecipient(staffId: String, role: UserRole, limit: Int): List<AppNotification> =
         client.postgrest.from(table).select {
             filter {
                 or { eq("recipient_staff_id", staffId); eq("recipient_role", role.notificationRole().name) }
                 gte("timestamp", notificationCutoffIso())
             }
-        }.decodeList<NotificationRow>().map { it.toDomain() }.sortedByDescending { it.timestamp }
+            order("timestamp", Order.DESCENDING)
+            limit(limit.toLong())
+        }.decodeList<NotificationRow>().map { it.toDomain() }
+    // A COUNT only — the badge must not download the rows.
     override suspend fun getUnreadCountForRecipient(staffId: String, role: UserRole): Int =
-        client.postgrest.from(table).select {
+        client.postgrest.from(table).select(Columns.list("id")) {
+            count(Count.EXACT)
+            limit(1)
             filter {
                 or { eq("recipient_staff_id", staffId); eq("recipient_role", role.notificationRole().name) }
                 eq("is_read", false)
                 gte("timestamp", notificationCutoffIso())
             }
-        }.decodeList<NotificationRow>().size
+        }.countOrNull()?.toInt() ?: 0
     override suspend fun add(notification: AppNotification) {
         client.postgrest.from(table).insert(notification.copy(id = newId()).toRow())
     }
@@ -767,8 +806,11 @@ internal fun AuditLogEntry.toRow() = AuditLogRow(
 
 class SupabaseAuditRepository(private val client: SupabaseClient) : AuditRepository {
     private val table = "audit_log"
-    override suspend fun getAllLogs(): List<AuditLogEntry> =
-        client.postgrest.from(table).select().decodeList<AuditLogRow>()
+    override suspend fun getAllLogs(since: LocalDate?): List<AuditLogEntry> =
+        client.postgrest.from(table).select {
+            since?.let { filter { gte("timestamp", sinceIso(it)) } }
+            order("timestamp", Order.DESCENDING)
+        }.decodeList<AuditLogRow>()
             .map { it.toDomain() }.sortedByDescending { it.timestamp }
     override suspend fun addLog(entry: AuditLogEntry) {
         client.postgrest.from(table).insert(entry.copy(id = newId()).toRow())

@@ -23,9 +23,7 @@ fun ConfigScreen(
     val syncConflicts by viewModel.syncConflicts.collectAsState()
 
     var selectedTabIndex by remember { mutableStateOf(0) }
-    val roundWindows by viewModel.roundWindows.collectAsState()
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val tabs = listOf("Staff", "Utility Items", "Round Times", "Sync" + if (syncConflicts.isNotEmpty()) " (${syncConflicts.size})" else "")
+    val tabs = listOf("Staff Management", "Utility Items", "Sync Conflicts" + if (syncConflicts.isNotEmpty()) " (${syncConflicts.size})" else "")
 
     Scaffold(
         topBar = {
@@ -89,16 +87,7 @@ fun ConfigScreen(
                     onUpdateItem = { viewModel.updateUtilityItem(it) },
                     onDeleteItem = { viewModel.deleteUtilityItem(it) }
                 )
-                2 -> RoundTimesEditor(
-                    windows = roundWindows,
-                    onSave = { tag, start, end, onResult ->
-                        viewModel.saveRoundWindow(tag, start, end) { ok, msg ->
-                            android.widget.Toast.makeText(context, if (ok) "Round times saved" else msg, android.widget.Toast.LENGTH_LONG).show()
-                            onResult(ok, msg)
-                        }
-                    }
-                )
-                3 -> SyncConflictsTab(
+                2 -> SyncConflictsTab(
                     conflicts = syncConflicts,
                     onDismiss = { viewModel.dismissConflict(it) }
                 )
