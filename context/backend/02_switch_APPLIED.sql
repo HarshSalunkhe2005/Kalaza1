@@ -1,6 +1,6 @@
 -- 02_switch.sql — PART A was APPLIED on 2026-10-13 (migration `switch_30min_window_rules`), after the
 -- medication-watchdog v11 deploy (medication-watchdog_DEPLOYED_v11.ts). Phones still on an older app are
--- told 'Outside the 30-minute giving window' if they tick after T+30. PART B (the wipe) is NOT applied.
+-- told 'Outside the 30-minute giving window' if they tick after T+30. PART B (the wipe) was APPLIED later the same day.
 
 -- ───────────── PART A: new rules ─────────────
 

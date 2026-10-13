@@ -40,7 +40,7 @@ Room cache (`cached_rows`, generic JSON of the same `*Row` DTOs) + write queue (
 
 ## Rollout status (2026-10-13)
 Version **1.0.3** (versionCode 4) is the release build, pushed (`8351579`). **Server switch applied the same day, before every phone had updated** (`context/backend/`): watchdog v11 deployed (T-15 and T reminders to Staff + Supervisor, Missed at T+30 to Supervisor + Super Admin/Admin), trigger `medications_window_guard` live, `admin_alert_sent_at` dropped, notification retention 14 d, watchdog schedules carry no key. A phone on an older app that ticks outside T..T+30 gets a failed tick (expected). The trigger treats a tick as an offline replay only if `recorded_offline` is true **and** its timestamp is over a minute old, so an old app's stale flag can't bypass the window.
-- **Still pending:** PART B of `02_switch_APPLIED.sql` — wipe `notifications`, `audit_log`, `medication_evidence_log` (irreversible; history table kept) — only on Harsh's explicit go-ahead. Create the Staff accounts; change Somnath's password (it was shared in chat).
+- **Fresh start done (2026-10-13):** PART B applied — `notifications` (1502), `audit_log` (216) and `medication_evidence_log` (169) were wiped; the per-day history table was kept; one audit row "Records reset" marks it. Still to do: change Somnath's password (it was shared in chat).
 - Handover: GitHub stays with Harsh; Supabase project (functions + secrets) and the Firebase/FCM project transfer after the APK rollout; Harsh provides updates until it runs smoothly.
 
 ## Known and accepted
